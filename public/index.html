@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7f2">
+  <title>지적클래스 · 강사 대시보드</title>
+  <meta name="description" content="객관식과 단답형 문제를 실시간으로 출제하고 채점하는 강의실">
+  <link rel="icon" type="image/png" href="/assets/icon.png">
+  <link rel="stylesheet" href="/teacher.css">
+  <script src="/teacher.js" defer></script>
+</head>
+<body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15m6-12v15M3 12l6-3 6 3 6-3"/></symbol>
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16M9 15v-3m5 3V8m5 7V5"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3m2-15a3 3 0 0 1 0 6m4 9v-3a4 4 0 0 0-3-3.9"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 4H6a2 2 0 0 0-2 2v10"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4m-6 7-1 1a4 4 0 0 1-5.7-5.7l4-4a4 4 0 0 1 5.7 0m2 9.7a4 4 0 0 0 5.7 0l4-4a4 4 0 0 0-5.7-5.7l-1 1" transform="translate(1 -1) scale(.92)"/></symbol>
+    <symbol id="i-paper" viewBox="0 0 24 24"><path d="M6 3h8l5 5v13H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v6h5M8 13h7m-7 4h7"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.3 2.3 4.7-4.8"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4 16-.8 4.8L8 20l11.4-11.4a2.8 2.8 0 0 0-4-4L4 16Zm9.5-9.5 4 4M12 21h8"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5Z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.4"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13 7 5h10l3 8v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-5Z"/><path d="M4 13h5l1 2h4l1-2h5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar-inner page-width">
+      <a class="brand" href="/" aria-label="지적클래스 강사 홈">
+        <span class="brand-emblem"><svg class="icon" aria-hidden="true"><use href="#i-map"/></svg></span>
+        <span class="brand-text"><strong>지적클래스</strong><small>강사 대시보드</small></span>
+      </a>
+      <nav class="top-nav" role="tablist" aria-label="강사 메뉴">
+        <button class="nav-button is-active" id="overview-tab" type="button" role="tab" data-tab="overview" aria-controls="overview-panel" aria-selected="true"><svg class="icon" aria-hidden="true"><use href="#i-dashboard"/></svg>수업 진행</button>
+        <button class="nav-button" id="history-tab" type="button" role="tab" data-tab="history" aria-controls="history-panel" aria-selected="false"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg>응답 기록</button>
+        <button class="nav-button" id="participants-tab" type="button" role="tab" data-tab="participants" aria-controls="participants-panel" aria-selected="false"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>참여 학생</button>
+      </nav>
+      <div class="top-controls">
+        <span class="connection-status" id="connection-status" role="status"><span class="connection-dot" aria-hidden="true"></span><span id="connection-label">연결 중</span></span>
+        <button class="button fullscreen-button" id="fullscreen" type="button" aria-label="발표 화면" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg><span id="fullscreen-label">발표 화면</span></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-width layout">
+    <section class="hero" aria-labelledby="class-heading">
+      <div class="hero-copy">
+        <p class="hero-eyebrow"><span aria-hidden="true"></span>실시간 강의실</p>
+        <h1 id="class-heading">지적학 퀴즈</h1>
+        <p class="hero-description">링크나 수업 코드를 공유하고 학생들의 답안을 받아보세요.</p>
+      </div>
+      <div class="room-card">
+        <div class="room-heading"><span>수업 코드</span><a id="join-link" href="/join" target="_blank" rel="noopener">학생 화면 열기 <span aria-hidden="true">↗</span></a></div>
+        <div class="room-code-row">
+          <strong id="room-code" aria-label="수업 코드">······</strong>
+          <button class="code-button" type="button" id="copy-code" aria-label="수업 코드 복사" title="수업 코드 복사"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg></button>
+        </div>
+        <button class="button share-button" type="button" id="copy-link"><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>참여 링크 복사</button>
+      </div>
+    </section>
+
+    <section class="metrics" aria-label="수업 현황">
+      <div class="metric"><span class="metric-icon"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg></span><div><p>참여 학생</p><strong id="metric-participants">0</strong></div></div>
+      <div class="metric"><span class="metric-icon paper-icon"><svg class="icon" aria-hidden="true"><use href="#i-paper"/></svg></span><div><p>제출 답안</p><strong id="metric-submissions">0</strong></div></div>
+      <div class="metric"><span class="metric-icon check-icon"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span><div><p>정답</p><strong id="metric-correct">0</strong></div></div>
+      <div class="metric"><span class="metric-icon target-icon"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></span><div><p>정답률</p><strong id="metric-rate">0%</strong></div></div>
+    </section>
+
+    <div class="dashboard" id="overview-panel" role="tabpanel" aria-labelledby="overview-tab" data-panel="overview">
+      <section class="panel bank-panel" aria-labelledby="bank-heading">
+        <div class="panel-heading">
+          <h2 id="bank-heading">문제 목록</h2>
+          <span class="count-badge" id="metric-total-questions">전체 0문항</span>
+        </div>
+        <div class="question-list" id="question-list"></div>
+        <div class="bank-footer">
+          <button class="button add-button" type="button" id="add-question"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>새 문제 만들기</button>
+        </div>
+      </section>
+
+      <section class="panel question-panel" aria-labelledby="question-heading">
+        <div class="panel-heading">
+          <h2 id="question-heading">출제 화면</h2>
+          <button class="button edit-button" type="button" id="edit-question"><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg>수정</button>
+        </div>
+        <div class="question-body">
+          <div class="question-meta"><span class="kind-badge" id="question-kind"></span><span class="state-badge" id="question-state"></span></div>
+          <h3 id="question-title">수업을 불러오는 중입니다.</h3>
+          <div class="question-options" id="question-options"></div>
+        </div>
+        <div class="question-actions">
+          <button class="button button-primary" type="button" id="open-question" disabled><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>문제 열기</button>
+          <button class="button button-primary" type="button" id="close-question" disabled><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>접수 마감</button>
+          <button class="button button-secondary" type="button" id="wait-question" disabled>대기 화면</button>
+        </div>
+      </section>
+
+      <section class="panel response-panel" aria-labelledby="response-heading">
+        <div class="panel-heading">
+          <h2 id="response-heading">실시간 답안</h2>
+          <span id="response-count" class="count-badge response-count">0건</span>
+        </div>
+        <p id="response-question-title"></p>
+        <p class="projector-note">접수 마감 후 답안과 채점 결과가 표시됩니다.</p>
+        <div class="response-list" id="response-list" aria-label="학생 제출 답안"></div>
+      </section>
+    </div>
+
+    <section class="panel secondary-panel" id="history-panel" role="tabpanel" aria-labelledby="history-tab" data-panel="history" hidden>
+      <div class="panel-heading"><h2 id="history-heading">응답 기록</h2><button class="button button-secondary" id="reset-class" type="button" disabled>새 수업 시작</button></div>
+      <div id="history-list" class="secondary-list"></div>
+    </section>
+    <section class="panel secondary-panel" id="participants-panel" role="tabpanel" aria-labelledby="participants-tab" data-panel="participants" hidden>
+      <div class="panel-heading"><h2 id="participants-heading">참여 학생</h2></div>
+      <div id="participant-list" class="secondary-list"></div>
+    </section>
+  </main>
+
+  <dialog class="modal" id="login-dialog" aria-labelledby="login-heading">
+    <form id="login-form">
+      <div class="modal-heading"><h2 id="login-heading">강사 로그인</h2></div>
+      <div class="modal-body">
+        <div class="hosted-login" id="hosted-login" hidden>
+          <p class="field-help">사이트를 만든 ChatGPT 계정으로 로그인해 주세요.</p>
+          <a class="button button-primary" href="/signin-with-chatgpt?return_to=%2F" target="_top">ChatGPT로 로그인</a>
+        </div>
+        <label for="login-key">강사 접속 키</label>
+        <input id="login-key" type="password" autocomplete="current-password" maxlength="256" required>
+        <p class="field-help" id="login-key-help">서버를 실행한 창에 표시된 접속 키를 입력하세요.</p>
+        <p class="form-error" id="login-error" role="alert"></p>
+      </div>
+      <div class="modal-actions"><button type="submit" class="button button-primary">로그인</button></div>
+    </form>
+  </dialog>
+
+  <dialog class="modal" id="question-dialog" aria-labelledby="question-dialog-title">
+    <form id="question-form">
+      <div class="modal-heading"><h2 id="question-dialog-title">새 문제 만들기</h2><button class="icon-button" type="button" data-dismiss aria-label="닫기"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+      <div class="modal-body question-form-body">
+        <div class="field"><label for="question-type">문제 유형</label><select id="question-type"><option value="multiple">객관식</option><option value="short">단답형</option></select></div>
+        <div class="field"><label for="question-input">문제</label><textarea id="question-input" rows="2" maxlength="240" placeholder="학생들에게 출제할 문제를 입력하세요." required></textarea></div>
+        <fieldset id="multiple-fields" class="option-fields">
+          <legend>선택지와 정답</legend>
+          <p class="field-help">선택지를 2개 이상 입력하고 정답을 선택하세요.</p>
+          <div class="option-field"><input type="radio" name="correct-index" value="0" aria-label="1번을 정답으로 지정" checked><input type="text" data-option maxlength="100" placeholder="선택지 1" aria-label="선택지 1"></div>
+          <div class="option-field"><input type="radio" name="correct-index" value="1" aria-label="2번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 2" aria-label="선택지 2"></div>
+          <div class="option-field"><input type="radio" name="correct-index" value="2" aria-label="3번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 3 (선택 사항)" aria-label="선택지 3"></div>
+          <div class="option-field"><input type="radio" name="correct-index" value="3" aria-label="4번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 4 (선택 사항)" aria-label="선택지 4"></div>
+        </fieldset>
+        <div class="field" id="short-fields" hidden><label for="accepted-answers">인정 정답</label><textarea id="accepted-answers" rows="3" placeholder="경계선&#10;필지 경계선"></textarea><p class="field-help">정답으로 인정할 표현을 한 줄에 하나씩 입력하세요.</p></div>
+        <p class="form-error" id="question-error" role="alert"></p>
+      </div>
+      <div class="modal-actions"><button class="button button-secondary" type="button" data-dismiss>취소</button><button type="submit" class="button button-primary">문제 저장</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

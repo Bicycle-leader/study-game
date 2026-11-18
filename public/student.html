@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f3">
+  <title>학생 참여 · 지적클래스</title>
+  <link rel="icon" type="image/png" href="/assets/icon.png">
+  <link rel="stylesheet" href="/student.css">
+  <script src="/student.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="frame header-content">
+      <a class="brand" href="/join" aria-label="지적클래스 학생 참여">
+        <span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+        지적클래스
+      </a>
+      <span class="surface-label"><span class="surface-dot" aria-hidden="true"></span>학생 화면</span>
+    </div>
+  </header>
+
+  <main class="frame layout">
+    <aside class="map-panel" aria-hidden="true">
+      <span class="map-compass"><span>N</span><i></i></span>
+      <div class="map-index"><span>지적도</span><span>CADASTRAL MAP</span></div>
+    </aside>
+
+    <section class="work-panel" aria-labelledby="page-title">
+      <div class="work-content">
+        <div class="panel-top">
+          <p id="panel-label" class="panel-label">실시간 퀴즈</p>
+          <span id="room-label" class="room-label" hidden></span>
+        </div>
+        <h1 id="page-title" tabindex="-1">수업 참여하기</h1>
+        <p class="intro" id="intro">강사가 알려준 입장 코드와 화면에 표시할 닉네임을 입력하세요.</p>
+
+        <form class="join-form" id="join-form">
+          <div class="field">
+            <label for="room-code">입장 코드</label>
+            <input id="room-code" name="code" class="code-input" type="text" placeholder="예: A1B2C3" minlength="6" maxlength="6" pattern="[A-Za-z0-9]{6}" autocomplete="off" autocapitalize="characters" spellcheck="false" required>
+          </div>
+          <div class="field">
+            <label for="nickname">닉네임</label>
+            <input id="nickname" name="nickname" type="text" placeholder="예: 필지탐험가" maxlength="20" autocomplete="nickname" required>
+          </div>
+          <button type="submit" class="primary-button" id="join-button">참여하기 <span aria-hidden="true">→</span></button>
+        </form>
+
+        <div class="notice" id="notice" hidden>
+          <span class="notice-icon" id="notice-icon" aria-hidden="true"></span>
+          <p id="notice-text"></p>
+          <button type="button" class="text-button" id="retry-button" hidden>연결 다시 시도</button>
+        </div>
+
+        <form class="answer-form" id="answer-form" hidden>
+          <fieldset class="choices" id="choices" aria-labelledby="page-title" hidden></fieldset>
+          <div class="field" id="short-field" hidden>
+            <label for="short-answer">내 답안</label>
+            <input id="short-answer" name="answer" type="text" maxlength="160" autocomplete="off" placeholder="답안을 입력하세요">
+          </div>
+          <button type="submit" class="primary-button" id="answer-button">제출하기 <span aria-hidden="true">→</span></button>
+        </form>
+
+        <div class="answer-result" id="answer-result" hidden>
+          <p class="result-badge" id="result-badge"></p>
+          <dl class="result-details" id="result-details"></dl>
+        </div>
+
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+        <p class="visually-hidden" id="live-update" role="status" aria-atomic="true"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="frame site-footer">
+    <span>지적클래스</span>
+    <span id="student-name">수업용 실시간 퀴즈</span>
+  </footer>
+</body>
+</html>

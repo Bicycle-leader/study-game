@@ -1,0 +1,323 @@
+const ui = Object.fromEntries([
+  'page-title', 'panel-label', 'room-label', 'intro', 'join-form', 'room-code', 'nickname',
+  'join-button', 'notice', 'notice-icon', 'notice-text', 'retry-button', 'answer-form',
+  'choices', 'short-field', 'short-answer', 'answer-button', 'answer-result', 'result-badge',
+  'result-details', 'form-error', 'live-update', 'student-name'
+].map(id => [id, document.getElementById(id)]));
+
+const roomParameter = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase();
+const sessionKey = 'cadastral-classroom-student';
+let session = readSession();
+let state = null;
+let connectionError = false;
+let sendingAnswer = false;
+let pollTimer;
+let requestingState = false;
+let dataRevision = 0;
+let shownQuestion = '';
+let announcedView = '';
+
+if (/^[A-Z0-9]{6}$/.test(roomParameter ?? '')) {
+  ui['room-code'].value = roomParameter;
+  if (session?.roomCode !== roomParameter) session = null;
+}
+
+function readSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(sessionKey));
+    return saved?.token && saved.roomCode && saved.nickname ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(currentSession) {
+  session = currentSession;
+  try {
+    if (session) sessionStorage.setItem(sessionKey, JSON.stringify(session));
+    else sessionStorage.removeItem(sessionKey);
+  } catch {
+    // The current visit still works when browser storage is unavailable.
+  }
+}
+
+async function request(path, body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  const headers = {};
+  if (session) headers['x-participant-token'] = session.token;
+  if (body) headers['content-type'] = 'application/json';
+  const options = { headers, signal: controller.signal };
+  if (body) {
+    options.method = 'POST';
+    options.body = JSON.stringify(body);
+  }
+  try {
+    const response = await fetch(path, options);
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.error ?? '요청을 처리하지 못했습니다.');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function setError(message = '') {
+  ui['form-error'].textContent = message;
+  ui['form-error'].hidden = !message;
+}
+
+function showNotice(message, icon, retry = false) {
+  ui.notice.hidden = !message;
+  ui.notice.classList.toggle('connection-error', retry);
+  ui['notice-text'].textContent = message;
+  ui['notice-icon'].textContent = icon;
+  ui['retry-button'].hidden = !retry;
+}
+
+function answerText(question, value) {
+  if (value === null || value === undefined) return '—';
+  return question.type === 'multiple' ? question.options[value] ?? '—' : value;
+}
+
+function resultRow(label, value) {
+  const row = document.createElement('div');
+  const term = document.createElement('dt');
+  const description = document.createElement('dd');
+  term.textContent = label;
+  description.textContent = value;
+  row.append(term, description);
+  return row;
+}
+
+function showResult(question, response, closed) {
+  let message = '제출 완료';
+  let tone = '';
+  if (closed) {
+    if (!response) {
+      message = '미제출';
+      tone = 'neutral';
+    } else if (response.correct) {
+      message = '✓ 정답입니다';
+    } else {
+      message = '× 오답입니다';
+      tone = 'incorrect';
+    }
+  }
+
+  ui['result-badge'].className = `result-badge ${tone}`;
+  ui['result-badge'].textContent = message;
+  ui['result-details'].replaceChildren(resultRow('내 답안', answerText(question, response?.value)));
+
+  if (closed) {
+    const correct = question.type === 'multiple'
+      ? answerText(question, question.correctIndex)
+      : question.acceptedAnswers?.join(' 또는 ') ?? '—';
+    ui['result-details'].append(resultRow('정답', correct));
+  }
+  return message;
+}
+
+function buildOptions(question) {
+  const options = question.type === 'multiple' ? question.options : [];
+  const key = JSON.stringify([question.id, question.type, options]);
+  if (shownQuestion === key) return;
+  shownQuestion = key;
+  ui['short-answer'].value = '';
+
+  const choices = options.map((option, index) => {
+    const label = document.createElement('label');
+    label.className = 'choice';
+    const input = document.createElement('input');
+    input.className = 'visually-hidden';
+    input.type = 'radio';
+    input.name = 'answer';
+    input.value = index;
+    const number = document.createElement('span');
+    number.className = 'choice-number';
+    number.setAttribute('aria-hidden', 'true');
+    number.textContent = index + 1;
+    const text = document.createElement('span');
+    text.className = 'choice-text';
+    text.textContent = option;
+    label.append(input, number, text);
+    return label;
+  });
+  ui.choices.replaceChildren(...choices);
+}
+
+function announce(key, message) {
+  if (announcedView === key) return;
+  announcedView = key;
+  ui['live-update'].textContent = message;
+}
+
+function render() {
+  const inRoom = Boolean(session);
+  const question = state?.question;
+  const closed = state?.stage === 'closed';
+  const response = state?.response;
+  const takingAnswers = state?.stage === 'open' && !response;
+
+  ui['join-form'].hidden = inRoom;
+  ui['room-label'].hidden = !inRoom;
+  ui['room-label'].textContent = inRoom ? `코드 ${session.roomCode}` : '';
+  ui['student-name'].textContent = inRoom ? `참여 중 · ${session.nickname}` : '수업용 실시간 퀴즈';
+  ui['answer-form'].hidden = !question || !takingAnswers;
+  ui['answer-result'].hidden = !question || (!closed && !response);
+  ui['answer-button'].disabled = sendingAnswer;
+  showNotice('', '');
+
+  if (!inRoom) {
+    ui['panel-label'].textContent = '실시간 퀴즈';
+    ui['page-title'].textContent = '수업 참여하기';
+    ui.intro.textContent = '강사가 알려준 입장 코드와 화면에 표시할 닉네임을 입력하세요.';
+    announce('join', '');
+    return;
+  }
+
+  if (!question) {
+    shownQuestion = '';
+    ui['panel-label'].textContent = '실시간 퀴즈';
+    ui['page-title'].textContent = state ? '문제를 기다리고 있어요' : '수업에 연결하고 있어요';
+    ui.intro.textContent = '강사가 문제를 열면 이 화면에 표시됩니다.';
+    if (state) showNotice('수업방에 입장했습니다.', '✓');
+    announce('waiting', ui['page-title'].textContent);
+  } else {
+    const multiple = question.type === 'multiple';
+    ui['panel-label'].textContent = multiple ? '객관식 문제' : '단답형 문제';
+    ui['page-title'].textContent = question.title;
+    ui.choices.hidden = !multiple;
+    ui['short-field'].hidden = multiple;
+
+    if (takingAnswers) {
+      buildOptions(question);
+      ui.intro.textContent = multiple ? '보기 중 정답 하나를 선택해 주세요.' : '답안을 짧게 입력해 주세요.';
+      announce(`open-${question.id}`, `문제가 열렸습니다. ${question.title}`);
+    } else {
+      const result = showResult(question, response, closed);
+      ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '강사가 문제를 마감하면 채점 결과가 표시됩니다.';
+      announce(`${closed}-${question.id}-${result}`, result);
+    }
+  }
+
+  if (connectionError) {
+    showNotice('수업방에 다시 연결하고 있어요.', '!', true);
+    announce('connection-error', '수업방과의 연결이 끊어졌습니다.');
+  }
+}
+
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  if (session) pollTimer = setTimeout(syncState, 1500);
+}
+
+async function syncState() {
+  if (!session || requestingState || sendingAnswer) return;
+  clearTimeout(pollTimer);
+  requestingState = true;
+  const currentSession = session;
+  const revision = dataRevision;
+
+  try {
+    const latest = await request(`/api/state?code=${encodeURIComponent(currentSession.roomCode)}`);
+    if (session !== currentSession || revision !== dataRevision) return;
+    const changedView = state?.question?.id !== latest.question?.id || state?.stage !== latest.stage;
+    const changed = changedView || connectionError || JSON.stringify(state) !== JSON.stringify(latest);
+    state = latest;
+    connectionError = false;
+    if (changedView) setError();
+    if (changed) render();
+  } catch (error) {
+    if (session !== currentSession || revision !== dataRevision) return;
+    if (error.status === 401 || error.status === 404) {
+      ui['room-code'].value = currentSession.roomCode;
+      ui.nickname.value = currentSession.nickname;
+      state = null;
+      saveSession(null);
+      render();
+      setError('참여 정보가 만료되었습니다. 입장 코드를 확인하고 다시 참여해 주세요.');
+    } else if (!connectionError) {
+      connectionError = true;
+      render();
+    }
+  } finally {
+    requestingState = false;
+    schedulePoll();
+  }
+}
+
+ui['join-form'].addEventListener('submit', async event => {
+  event.preventDefault();
+  setError();
+  const code = ui['room-code'].value.trim().toUpperCase();
+  const nickname = ui.nickname.value.trim();
+  if (!nickname) {
+    setError('닉네임을 입력해 주세요.');
+    ui.nickname.focus();
+    return;
+  }
+
+  ui['join-button'].disabled = true;
+  try {
+    const joined = await request('/api/join', { code, nickname });
+    saveSession({ token: joined.token, roomCode: code, nickname: joined.participant.nickname });
+    const url = new URL(window.location.href);
+    url.searchParams.set('code', code);
+    window.history.replaceState(null, '', url);
+    connectionError = false;
+    render();
+    ui['page-title'].focus();
+    await syncState();
+  } catch (error) {
+    setError(error.status ? error.message : '수업방에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+  } finally {
+    ui['join-button'].disabled = false;
+  }
+});
+
+ui['answer-form'].addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!state?.question || state.stage !== 'open' || state.response || sendingAnswer) return;
+  setError();
+  const question = state.question;
+  const selected = ui.choices.querySelector('input:checked');
+  const value = question.type === 'multiple' ? Number(selected?.value) : ui['short-answer'].value.trim();
+  if (question.type === 'multiple' ? !selected : !value) {
+    setError(question.type === 'multiple' ? '제출할 보기를 선택해 주세요.' : '답안을 입력해 주세요.');
+    if (question.type === 'short') ui['short-answer'].focus();
+    else ui.choices.querySelector('input')?.focus();
+    return;
+  }
+
+  sendingAnswer = true;
+  dataRevision += 1;
+  ui['answer-button'].disabled = true;
+  try {
+    const submitted = await request('/api/answer', { value, questionId: question.id });
+    state.response = submitted.response;
+    connectionError = false;
+    render();
+    ui['page-title'].focus();
+  } catch (error) {
+    setError(error.status ? error.message : '답안을 제출할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+  } finally {
+    sendingAnswer = false;
+    ui['answer-button'].disabled = false;
+    syncState();
+  }
+});
+
+ui['join-form'].addEventListener('input', () => setError());
+ui['answer-form'].addEventListener('input', () => setError());
+ui['retry-button'].addEventListener('click', syncState);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) syncState();
+});
+
+render();
+syncState();
