@@ -71,8 +71,12 @@ a { color: inherit; }
 .code-button { display: grid; place-items: center; width: 33px; height: 33px; padding: 0; border: 1px solid #79947d; border-radius: 7px; color: #e3edd8; background: #41645266; }
 .code-button:hover { background: #597b60; }
 .code-button .icon { width: 17px; height: 17px; }
-.share-button { width: 100%; min-height: 37px; color: #1f4433; background: #e7efd9; }
-.share-button:hover { background: #f0f5e7; }
+.room-actions { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+.room-actions .button { min-height: 37px; padding-inline: 8px; gap: 5px; font-size: 12px; }
+.qr-button { color: #1f4433; background: #e7efd9; }
+.qr-button:hover:not(:disabled) { background: #f0f5e7; }
+.share-button { color: #e6efdc; background: #355948; border-color: #79947d; }
+.share-button:hover:not(:disabled) { background: #466d56; }
 
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; margin: 19px 0 23px; }
 .metric { min-height: 87px; display: flex; align-items: center; gap: 13px; padding: 13px 17px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
@@ -167,6 +171,14 @@ a { color: inherit; }
 .modal .field { display: grid; gap: 5px; }
 .modal :is(input:not([type='radio']), textarea, select) { width: 100%; padding: 8px 10px; color: var(--ink); background: #fbfcfa; border: 1px solid #cad7c8; border-radius: 7px; font-size: 14px; }
 .modal textarea { resize: vertical; }
+.qr-modal { width: min(570px, calc(100% - 28px)); }
+.qr-content { display: grid; justify-items: center; gap: 12px; padding: 17px 20px 22px; text-align: center; }
+.qr-content > p { color: var(--muted); font-size: 14px; word-break: keep-all; }
+.qr-content #qr-error { color: #9d402c; }
+#qr-image { display: block; width: min(420px, 100%, 54dvh); height: auto; image-rendering: pixelated; }
+.qr-room { display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-radius: 7px; background: var(--sage); color: var(--pine); font-size: 12px; font-weight: 700; }
+.qr-room strong { font: 700 20px Consolas, monospace; letter-spacing: .12em; }
+#qr-student-link { color: var(--pine); font-size: 13px; font-weight: 700; text-underline-offset: 3px; }
 .option-fields { min-width: 0; display: grid; gap: 6px; margin: 0; padding: 8px 10px 10px; border: 1px solid var(--line); border-radius: 8px; }
 .option-field { display: flex; align-items: center; gap: 8px; }
 .option-field input[type='radio'] { flex: 0 0 auto; accent-color: var(--pine); }

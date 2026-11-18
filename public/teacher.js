@@ -15,6 +15,7 @@ let editingId = null;
 let busy = false;
 let revision = 0;
 let toastTimeout;
+let renderedQrUrl;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -101,6 +102,7 @@ function syncControls() {
     'wait-question': { disabled: busy || isWaiting, hidden: isWaiting || isOpen },
     'copy-code': { disabled: !state },
     'copy-link': { disabled: !state },
+    'show-qr': { disabled: !state?.joinUrl },
     'reset-class': { disabled: busy || !state },
   };
   for (const [id, properties] of Object.entries(controls)) {
@@ -240,6 +242,7 @@ function render() {
   const joinLink = $('join-link');
   if (joinLink?.tagName === 'A') joinLink.href = `/join?code=${encodeURIComponent(state.roomCode)}`;
   if (joinLink) joinLink.title = state.joinUrl;
+  if ($('qr-dialog')?.open) renderJoinQr();
   renderQuestionList();
   renderQuestion();
   renderResponses();
@@ -268,6 +271,7 @@ function showToast(message, isError = false) {
 function showLogin(message = '') {
   setConnection('login');
   setText('login-error', message);
+  $('qr-dialog')?.close();
   const dialog = $('login-dialog');
   if (dialog && !dialog.open) dialog.showModal();
 }
@@ -435,6 +439,31 @@ async function copy(value, label) {
   }
 }
 
+function renderJoinQr() {
+  const { joinUrl, roomCode } = state;
+  setText('qr-room-code', roomCode);
+  $('qr-student-link').href = joinUrl;
+  if (renderedQrUrl === joinUrl) return;
+
+  const image = $('qr-image');
+  const error = $('qr-error');
+  try {
+    const qr = window.qrcode(0, 'M');
+    qr.addData(joinUrl);
+    qr.make();
+    // Keep the four-module white border so phone cameras can find the symbol.
+    image.src = qr.createDataURL(10, 40);
+    image.hidden = false;
+    error.hidden = true;
+    renderedQrUrl = joinUrl;
+  } catch {
+    image.removeAttribute('src');
+    image.hidden = true;
+    error.hidden = false;
+    renderedQrUrl = undefined;
+  }
+}
+
 function activateTab(name) {
   tabs.forEach((tab) => {
     const selected = tab.dataset.tab === name;
@@ -531,6 +560,11 @@ listen('reset-class', 'click', () => {
 });
 listen('copy-code', 'click', () => copy(state?.roomCode, '참여 코드'));
 listen('copy-link', 'click', () => copy(state?.joinUrl, '참여 링크'));
+listen('show-qr', 'click', () => {
+  if (!state?.joinUrl) return;
+  renderJoinQr();
+  $('qr-dialog').showModal();
+});
 
 function setPresentation(active) {
   document.body.classList.toggle('is-projecting', active);

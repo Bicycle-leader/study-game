@@ -10,6 +10,7 @@ const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.png': 'image/png',
+  '.txt': 'text/plain; charset=utf-8',
 };
 
 async function bundleAssets(directory) {
