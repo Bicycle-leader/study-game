@@ -1,5 +1,6 @@
 const ui = Object.fromEntries([
-  'page-title', 'panel-label', 'room-label', 'intro', 'join-form', 'room-code', 'nickname',
+  'page-title', 'panel-label', 'room-label', 'question-source', 'question-category-row', 'question-category', 'question-chapter-row', 'question-chapter',
+  'question-topic-row', 'question-topic', 'intro', 'join-form', 'room-code', 'nickname',
   'join-button', 'notice', 'notice-icon', 'notice-text', 'retry-button', 'answer-form',
   'choices', 'short-field', 'short-answer', 'essay-field', 'essay-answer', 'answer-button', 'answer-result', 'result-badge',
   'result-details', 'form-error', 'live-update', 'student-name', 'question-timer', 'timer-status', 'countdown'
@@ -232,6 +233,15 @@ function render() {
   ui['answer-result'].hidden = !question || (!closed && !response);
   showNotice('', '');
 
+  const chapter = inRoom ? question?.chapter : '';
+  const topic = inRoom && closed ? question?.topic : '';
+  const category = inRoom && question?.category !== chapter ? question?.category : '';
+  ui['question-source'].hidden = !category && !chapter && !topic;
+  for (const [name, label] of Object.entries({ category, chapter, topic })) {
+    ui[`question-${name}-row`].hidden = !label;
+    ui[`question-${name}`].textContent = label || '';
+  }
+
   if (!inRoom) {
     ui['panel-label'].textContent = '실시간 퀴즈';
     ui['page-title'].textContent = '수업 참여하기';
@@ -260,7 +270,10 @@ function render() {
     if (takingAnswers) {
       buildOptions(question, state.closesAt);
       ui.intro.textContent = multiple ? '보기 중 정답 하나를 선택해 주세요.' : essay ? '질문에 대한 답안을 작성해 주세요.' : '답안을 짧게 입력해 주세요.';
-      if (!expired) announce(`open-${question.id}-${state.closesAt}`, `문제가 열렸습니다. ${question.title}`);
+      if (!expired) {
+        const details = [category, chapter, question.title].filter(Boolean).join('. ');
+        announce(`open-${question.id}-${state.closesAt}`, `문제가 열렸습니다. ${details}`);
+      }
     } else {
       const result = showResult(question, response, closed);
       if (essay && response && typeof response.correct !== 'boolean') {
@@ -268,7 +281,7 @@ function render() {
       } else {
         ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '강사가 문제를 마감하면 채점 결과가 표시됩니다.';
       }
-      if (!expired) announce(`${closed}-${question.id}-${result}`, result);
+      if (!expired) announce(`${closed}-${question.id}-${result}`, topic ? `${result}. 목차 ${topic}` : result);
     }
   }
 

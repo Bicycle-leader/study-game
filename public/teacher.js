@@ -1,9 +1,10 @@
 const $ = (id) => document.getElementById(id);
 
-const kindLabels = { multiple: '객관식', short: '단답형' };
+const kindLabels = { multiple: '객관식', short: '단답형', essay: '서술형' };
 const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '접수 마감' };
+const defaultEssaySeconds = 120;
 const optionMarkers = ['A', 'B', 'C', 'D'];
-const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, optionCounts: [] };
+const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, pendingCount: 0, optionCounts: [] };
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
 const rendered = new Map();
 const tabs = Array.from(document.querySelectorAll('[data-tab]'));
@@ -18,10 +19,13 @@ let revision = 0;
 let toastTimeout;
 let renderedQrUrl;
 let presenting = false;
+let joining = true;
 let managing = false;
 let activeTab = 'overview';
 let countdown = null;
 let countdownTick = null;
+let essaySession = null;
+let pendingEssayId = null;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -71,7 +75,8 @@ function renderList(id, signature, items) {
   const focusedId = container.contains(document.activeElement) && document.activeElement.dataset.questionId;
   container.replaceChildren(...items());
   if (focusedId) {
-    Array.from(container.children).find((child) => child.dataset.questionId === focusedId)?.focus();
+    Array.from(container.querySelectorAll('[data-question-id]'))
+      .find((child) => child.dataset.questionId === focusedId)?.focus();
   }
   rendered.set(id, key);
 }
@@ -102,15 +107,36 @@ function nextQuestion() {
   return state.questions[index + 1];
 }
 
+function questionToOpen() {
+  return managing ? selectedQuestion() : nextQuestion();
+}
+
+function hasPendingExport(history = []) {
+  const seen = new Set();
+  return history.some((entry) => {
+    if (seen.has(entry.questionId)) return false;
+    seen.add(entry.questionId);
+    return entry.type === 'essay' && entry.pendingCount > 0;
+  });
+}
+
+function hasClosedEssay(questionId) {
+  if (state?.stage === 'open' && state.activeQuestionId === questionId) return false;
+  return Boolean(state?.history?.some((entry) => entry.questionId === questionId && entry.type === 'essay'));
+}
+
 function syncControls() {
   const question = selectedQuestion();
   const isActive = Boolean(question && state.activeQuestionId === question.id);
   const isOpen = state?.stage === 'open';
   const isWaiting = !state || state.stage === 'waiting';
+  const isClosedEssay = state?.stage === 'closed' && releasedQuestion()?.type === 'essay';
+  const pendingExport = hasPendingExport(state?.history);
   const isUsed = question && (
     (isActive && state.summary?.total > 0) ||
     state.history?.some((entry) => entry.questionId === question.id && entry.total > 0)
   );
+  if (pendingEssayId && (isOpen || questionToOpen()?.id !== pendingEssayId)) closeEssayTimeDialog();
   const controls = {
     'toggle-question-management': { disabled: busy || !state, hidden: presenting },
     'bank-panel': { hidden: !managing },
@@ -120,10 +146,17 @@ function syncControls() {
     'next-question': { disabled: busy || !nextQuestion() || isOpen, hidden: managing || isOpen },
     'close-question': { disabled: busy || !isOpen, hidden: !isOpen },
     'wait-question': { disabled: busy || isWaiting, hidden: isWaiting || isOpen },
+    'grade-essay': { disabled: busy || !isClosedEssay || !state.summary?.total, hidden: presenting || !isClosedEssay },
     'copy-code': { disabled: !state },
     'copy-link': { disabled: !state },
     'show-qr': { disabled: !state?.joinUrl },
-    'download-history': { disabled: busy || !state?.history?.length, hidden: presenting },
+    'enter-class': { disabled: !state },
+    'essay-time-limit': { disabled: busy },
+    'essay-time-cancel': { disabled: busy },
+    'essay-time-open': { disabled: busy },
+    'copy-join-link': { disabled: !state?.joinUrl },
+    'download-history': { disabled: busy || !state?.history?.length || pendingExport, hidden: presenting },
+    'history-download-note': { hidden: presenting || !pendingExport },
     'reset-class': { disabled: busy || !state, hidden: presenting },
   };
   for (const [id, properties] of Object.entries(controls)) {
@@ -132,7 +165,7 @@ function syncControls() {
   }
   $('overview-panel').classList.toggle('is-managing', managing);
   $('toggle-question-management').setAttribute('aria-expanded', String(managing));
-  setText('toggle-question-management', managing ? '문제 관리 닫기' : '문제 관리');
+  setText('toggle-question-management', managing ? '문제 목록 닫기' : '문제 목록 보기');
   const edit = $('edit-question');
   if (edit) edit.title = isUsed ? '응답이 제출된 문항은 수정할 수 없습니다.' : '문항 수정';
 }
@@ -144,7 +177,10 @@ function renderQuestionList() {
     if (!managing) return [];
     if (!questions.length) return [empty('등록된 문항이 없습니다', '문항 추가 버튼으로 첫 문제를 만들어 보세요.')];
 
-    return questions.map((question, index) => {
+    const categorized = questions.some((question) => question.category);
+    const groups = new Map();
+    const items = [];
+    for (const [index, question] of questions.entries()) {
       const button = el('button', 'question-item');
       button.type = 'button';
       button.dataset.questionId = question.id;
@@ -155,11 +191,27 @@ function renderQuestionList() {
       button.setAttribute('aria-pressed', String(isSelected));
       const content = el('span', 'question-item-copy');
       content.append(el('span', 'question-item-kind', kindLabels[question.type]));
+      const chapter = question.chapter !== question.category ? question.chapter : '';
+      const source = [chapter, question.topic].filter(Boolean).join(' · ');
+      if (source) content.append(el('span', 'question-item-source', source));
       content.append(el('strong', 'question-item-title', question.title));
       button.append(el('span', 'question-item-number', String(index + 1).padStart(2, '0')), content);
       if (isLive) button.append(el('span', 'question-item-live', '진행 중'));
-      return button;
-    });
+      if (!categorized) {
+        items.push(button);
+        continue;
+      }
+
+      const heading = question.category || '추가 문항';
+      if (!groups.has(heading)) {
+        const group = el('section', 'question-group');
+        group.append(el('h3', '', heading));
+        groups.set(heading, group);
+        items.push(group);
+      }
+      groups.get(heading).append(button);
+    }
+    return items;
   });
 }
 
@@ -172,12 +224,19 @@ function renderQuestion() {
   setText('question-title', question?.title || (managing ? '문항을 선택해 주세요' : '아직 열린 문제가 없습니다'));
   setText('question-kind', question ? kindLabels[question.type] : '');
   setText('question-state', stageLabels[questionStage] || '미리 보기');
+  const chapter = question?.chapter || question?.category;
+  const group = question?.category !== chapter ? question?.category : '';
+  const topic = !presenting || questionStage === 'closed' ? question?.topic : '';
+  setText('question-source-group', group || '');
+  setText('question-source-chapter', chapter ? `챕터 ${chapter}` : '');
+  setText('question-source-topic', topic ? `목차 ${topic}` : '');
+  $('question-source').hidden = !chapter && !topic;
   const badge = $('question-state');
   if (badge) badge.dataset.stage = questionStage;
 
   const showKey = !presenting || questionStage === 'closed';
   renderList('question-options', [question, showKey], () => {
-    if (!question) return [];
+    if (!question || question.type === 'essay') return [];
     const isShort = question.type === 'short';
     if (isShort && !showKey) return [];
     const answers = isShort ? question.acceptedAnswers : question.options;
@@ -194,8 +253,9 @@ function renderQuestion() {
   });
 }
 
-function accuracy({ correctCount, total }) {
-  return total ? `${Math.round(100 * correctCount / total)}%` : '0%';
+function accuracy({ correctCount, incorrectCount, total }, isEssay = false) {
+  const denominator = isEssay ? correctCount + incorrectCount : total;
+  return denominator ? `${Math.round(100 * correctCount / denominator)}%` : isEssay ? '—' : '0%';
 }
 
 function countBreakdown(items, total, kind) {
@@ -218,42 +278,62 @@ function countBreakdown(items, total, kind) {
 }
 
 function renderResponseSummary() {
-  const { stage } = state;
+  const stage = state?.stage;
   const question = releasedQuestion();
   const summary = question ? (state.summary || emptySummary) : emptySummary;
   const hideResults = presenting && stage === 'open';
+  const isEssay = question?.type === 'essay';
   setText('response-count', `${summary.total}건`);
   setText('response-question-title', managing && question && selectedId !== question.id ? question.title : '');
   setText('metric-submissions', summary.total);
   setText('metric-correct', hideResults ? '' : summary.correctCount);
-  setText('metric-rate', hideResults ? '' : accuracy(summary));
+  setText('metric-rate-label', isEssay ? '채점한 답안의 정답률' : '정답률');
+  setText('metric-rate', hideResults ? '' : accuracy(summary, isEssay));
 
-  renderList('response-list', [question?.id, hideResults ? null : summary], () => {
+  renderList('response-list', [question?.id, question?.type, hideResults ? null : summary], () => {
     if (hideResults) return [];
     if (!question) return [empty('응답 집계 대기', '문제를 열면 제출 현황을 볼 수 있습니다.')];
     if (question.type === 'multiple') {
       return [countBreakdown(summary.optionCounts, summary.total, 'option')];
     }
-    return [countBreakdown([
+    const grades = [
       { label: '정답', count: summary.correctCount, result: 'correct' },
       { label: '오답', count: summary.incorrectCount, result: 'incorrect' },
-    ], summary.total, 'grade')];
+    ];
+    if (isEssay) grades.push({ label: '미채점', count: summary.pendingCount ?? 0, result: 'pending' });
+    return [countBreakdown(grades, summary.total, 'grade')];
   });
 }
 
 function renderHistory() {
+  if (joining || presenting) {
+    renderList('history-list', null, () => []);
+    return;
+  }
   const history = state.history || [];
-  const visibleHistory = presenting && state.stage === 'open'
-    ? history.filter((entry) => entry.questionId !== state.activeQuestionId)
-    : history;
-  renderList('history-list', visibleHistory, () => {
-    if (!visibleHistory.length) return [empty('표시할 응답 기록이 없습니다', '응답을 마감하면 문항의 채점 결과가 기록됩니다.')];
+  const openQuestionId = state.stage === 'open' ? state.activeQuestionId : null;
+  renderList('history-list', [history, openQuestionId], () => {
+    if (!history.length) return [empty('표시할 응답 기록이 없습니다', '응답을 마감하면 문항의 채점 결과가 기록됩니다.')];
 
-    return visibleHistory.map((record) => {
+    const gradedQuestions = new Set();
+    return history.map((record) => {
       const row = el('div', 'history-row');
       const title = el('strong', 'history-title', record.title);
-      const detail = `${kindLabels[record.type]} · ${formatDate(record.closedAt)} · 제출 ${record.total}건 · 정답 ${record.correctCount}건 · 오답 ${record.incorrectCount}건 · 정답률 ${accuracy(record)}`;
+      const isEssay = record.type === 'essay';
+      const pending = isEssay ? ` · 미채점 ${record.pendingCount ?? 0}건` : '';
+      const rate = isEssay && record.pendingCount > 0 ? '채점한 답안의 정답률' : '정답률';
+      const detail = `${kindLabels[record.type]} · ${formatDate(record.closedAt)} · 제출 ${record.total}건 · 정답 ${record.correctCount}건 · 오답 ${record.incorrectCount}건${pending} · ${rate} ${accuracy(record, isEssay)}`;
       row.append(title, el('span', 'history-detail', detail));
+      if (isEssay && record.questionId !== openQuestionId && !gradedQuestions.has(record.questionId)) {
+        gradedQuestions.add(record.questionId);
+        const button = el('button', 'button button-secondary essay-grade-button', '서술형 채점');
+        button.type = 'button';
+        button.disabled = record.total === 0;
+        button.dataset.essayId = record.questionId;
+        button.setAttribute('aria-haspopup', 'dialog');
+        button.setAttribute('aria-label', `${record.title} 서술형 채점`);
+        row.append(button);
+      }
       if (record.optionCounts?.length) row.append(countBreakdown(record.optionCounts, record.total, 'option'));
       return row;
     });
@@ -261,9 +341,10 @@ function renderHistory() {
 }
 
 function renderParticipants() {
-  const participants = presenting ? [] : state.participants;
-  renderList('participant-list', [presenting, participants], () => {
-    if (presenting) return [];
+  const privateView = !joining && !presenting;
+  const participants = privateView ? state.participants : [];
+  renderList('participant-list', [privateView, participants], () => {
+    if (!privateView) return [];
     if (!participants.length) {
       return [empty('아직 참여한 학생이 없습니다', '참여 링크 또는 강의실 코드를 학생에게 공유해 주세요.')];
     }
@@ -280,10 +361,15 @@ function render() {
   if (!state?.questions.some((item) => item.id === selectedId)) {
     selectedId = state?.activeQuestionId || state?.questions[0]?.id || null;
   }
+  if (joining) renderJoinQr();
   if (!state) {
+    for (const id of ['question-list', 'history-list', 'participant-list']) renderList(id, null, () => []);
+    renderQuestion();
+    renderResponseSummary();
     syncControls();
     return;
   }
+  if (essaySession && !hasClosedEssay(essaySession.questionId)) closeEssayDialog();
   document.body.dataset.stage = state.stage;
   setText('room-code', state.roomCode);
   setText('metric-participants', state.participants.length);
@@ -291,7 +377,6 @@ function render() {
   const joinLink = $('join-link');
   if (joinLink?.tagName === 'A') joinLink.href = `/join?code=${encodeURIComponent(state.roomCode)}`;
   if (joinLink) joinLink.title = state.joinUrl;
-  if ($('qr-dialog')?.open) renderJoinQr();
   renderQuestionList();
   renderQuestion();
   renderResponseSummary();
@@ -320,7 +405,9 @@ function showToast(message, isError = false) {
 function showLogin(message = '') {
   setConnection('login');
   setText('login-error', message);
-  $('qr-dialog')?.close();
+  closeEssayDialog();
+  closeQuestionDialog();
+  closeEssayTimeDialog();
   const dialog = $('login-dialog');
   if (dialog && !dialog.open) dialog.showModal();
 }
@@ -328,6 +415,9 @@ function showLogin(message = '') {
 function forgetLogin() {
   teacherToken = '';
   sessionStorage.removeItem('study-game-teacher');
+  state = null;
+  setJoinScreen(true, false);
+  syncCountdown({}, performance.now());
   showLogin(hosted ? '강사 로그인 시간이 만료되었습니다.' : '강사 로그인 키를 입력해 주세요.');
 }
 
@@ -379,7 +469,14 @@ async function loadState() {
   } catch (error) {
     if (requestedAt !== revision) return;
     if (error.status === 401) forgetLogin();
-    else setConnection('offline');
+    else {
+      if (error.status === 403) {
+        closeEssayDialog();
+        closeQuestionDialog();
+        closeEssayTimeDialog();
+      }
+      setConnection('offline');
+    }
   }
 }
 
@@ -408,10 +505,9 @@ async function mutate(path, payload, { message, after, onError } = {}) {
     if (message) showToast(message);
   } catch (error) {
     if (error.status === 401) {
-      $('question-dialog')?.close();
       forgetLogin();
     } else if (onError) {
-      onError(error.message);
+      onError(error.message, error.status);
     } else {
       showToast(error.message, true);
     }
@@ -443,20 +539,21 @@ function setQuestionType(type) {
 }
 
 function syncQuestionType() {
-  const isShort = getQuestionType() === 'short';
-  const multiple = $('multiple-fields');
-  const short = $('short-fields');
-  if (multiple) {
-    multiple.hidden = isShort;
-    multiple.querySelectorAll('input').forEach((input) => { input.disabled = isShort; });
-  }
-  if (short) {
-    short.hidden = !isShort;
-    short.querySelectorAll('input, textarea').forEach((input) => { input.disabled = !isShort; });
+  const type = getQuestionType();
+  for (const kind of Object.keys(kindLabels)) {
+    const fields = $(`${kind}-fields`);
+    fields.hidden = type !== kind;
+    fields.querySelectorAll('input, textarea').forEach((input) => { input.disabled = fields.hidden; });
   }
 }
 
+function closeQuestionDialog() {
+  $('question-dialog').close();
+  $('grading-guide').value = '';
+}
+
 function openQuestionDialog(question) {
+  if (joining || presenting) return;
   const form = $('question-form');
   const dialog = $('question-dialog');
   if (!form || !dialog) return;
@@ -466,6 +563,8 @@ function openQuestionDialog(question) {
   setText('question-dialog-title', question ? '문항 수정' : '새 문항 추가');
   setText('question-error', '');
   $('question-input').value = question?.title || '';
+  $('question-chapter').value = question?.chapter || '';
+  $('question-topic').value = question?.topic || '';
   form.querySelectorAll('[data-option]').forEach((input, index) => {
     input.value = question?.options?.[index] || '';
   });
@@ -473,6 +572,7 @@ function openQuestionDialog(question) {
     input.checked = Number(input.value) === (question?.correctIndex ?? 0);
   });
   $('accepted-answers').value = question?.acceptedAnswers?.join('\n') || '';
+  $('grading-guide').value = question?.gradingGuide || '';
   syncQuestionType();
   dialog.showModal();
   $('question-input').focus();
@@ -482,7 +582,14 @@ function readQuestion(form) {
   const title = $('question-input').value.trim();
   if (!title) throw new Error('문제 내용을 입력해 주세요.');
   const type = getQuestionType();
-  const question = { id: editingId || undefined, type, title };
+  const chapter = $('question-chapter').value.trim();
+  const topic = $('question-topic').value.trim();
+  const category = editingId ? undefined : chapter || undefined;
+  const question = { id: editingId || undefined, type, title, category, chapter, topic };
+  if (type === 'essay') {
+    question.gradingGuide = $('grading-guide').value.trim();
+    return question;
+  }
   if (type === 'short') {
     const answers = $('accepted-answers').value.split('\n').map((answer) => answer.trim()).filter(Boolean);
     if (!answers.length) throw new Error('정답으로 인정할 답안을 한 개 이상 입력해 주세요.');
@@ -498,6 +605,125 @@ function readQuestion(form) {
   question.options = options.filter(Boolean);
   question.correctIndex = options.slice(0, selectedOption).filter(Boolean).length;
   return question;
+}
+
+function closeEssayDialog() {
+  const session = essaySession;
+  essaySession = null;
+  const dialog = $('essay-dialog');
+  if (dialog.open) dialog.close();
+  for (const id of ['essay-question-title', 'essay-rubric-text', 'essay-status', 'essay-error']) setText(id, '');
+  $('essay-question-title').hidden = true;
+  $('essay-rubric').hidden = true;
+  $('essay-rubric').open = false;
+  $('essay-entries').replaceChildren();
+  if (session && !session.trigger.isConnected && !presenting && activeTab === 'history') {
+    const trigger = Array.from($('history-list').querySelectorAll('[data-essay-id]'))
+      .find((button) => button.dataset.essayId === session.questionId);
+    trigger?.focus();
+  }
+}
+
+function updateEssayStatus(entries) {
+  const pending = entries.filter((entry) => entry.correct === null).length;
+  setText('essay-status', entries.length ? `답안 ${entries.length}건 · 미채점 ${pending}건` : '제출된 답안이 없습니다.');
+}
+
+function updateEssayEntry(row, correct) {
+  const status = row.querySelector('.essay-entry-result');
+  status.dataset.grade = String(correct);
+  status.textContent = correct === null ? '미채점' : correct ? '정답' : '오답';
+  row.querySelectorAll('[data-grade].essay-action').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.grade === String(correct)));
+  });
+}
+
+function createEssayEntry(entry, index) {
+  const heading = `답안 ${index + 1}`;
+  const row = el('li', 'essay-entry');
+  row.dataset.responseId = entry.id;
+  const top = el('div', 'essay-entry-heading');
+  top.append(el('strong', '', heading), el('span', 'essay-entry-result'));
+  const actions = el('div', 'essay-entry-actions');
+  for (const [correct, label] of [[true, '정답'], [false, '오답']]) {
+    const button = el('button', 'button button-secondary essay-action', label);
+    button.type = 'button';
+    button.dataset.grade = String(correct);
+    button.setAttribute('aria-label', `${heading} ${label} 처리`);
+    actions.append(button);
+  }
+  row.append(top, el('p', 'essay-entry-text', entry.value), actions);
+  updateEssayEntry(row, entry.correct);
+  return row;
+}
+
+async function openEssayDialog(questionId, trigger) {
+  if (!teacherToken || joining || presenting || busy || !hasClosedEssay(questionId)) return;
+  const dialog = $('essay-dialog');
+  if (dialog.open) return;
+  const session = { questionId, trigger, entries: [] };
+  essaySession = session;
+  setText('essay-status', '답안을 불러오는 중입니다.');
+  dialog.showModal();
+  try {
+    const { question, entries } = await api(`/api/teacher/essay?questionId=${encodeURIComponent(questionId)}`);
+    if (essaySession !== session || presenting) return;
+    if (question?.id !== questionId || !Array.isArray(entries)) throw new Error('답안을 불러올 수 없습니다.');
+    session.entries = entries;
+    setText('essay-question-title', question.title);
+    $('essay-question-title').hidden = false;
+    setText('essay-rubric-text', question.gradingGuide || '');
+    $('essay-rubric').hidden = !question.gradingGuide;
+    $('essay-entries').replaceChildren(...entries.map(createEssayEntry));
+    updateEssayStatus(entries);
+  } catch (error) {
+    if (essaySession !== session) return;
+    if (error.status === 401) {
+      forgetLogin();
+      return;
+    }
+    if (error.status === 403) {
+      closeEssayDialog();
+      showToast(error.message, true);
+      return;
+    }
+    setText('essay-status', '');
+    setText('essay-error', error.message);
+  }
+}
+
+async function gradeEssayEntry(event) {
+  const button = event.target.closest('.essay-action');
+  const session = essaySession;
+  if (!button || !session || busy || presenting || !hasClosedEssay(session.questionId)) return;
+  const row = button.closest('.essay-entry');
+  const entry = session.entries.find((item) => item.id === row.dataset.responseId);
+  const correct = button.dataset.grade === 'true';
+  if (!entry || entry.correct === correct) return;
+  setText('essay-error', '');
+  const controls = Array.from($('essay-entries').querySelectorAll('.essay-action'));
+  controls.forEach((control) => control.setAttribute('aria-disabled', 'true'));
+  try {
+    await mutate('essay-grade', { questionId: session.questionId, responseId: entry.id, correct }, {
+      after: () => {
+        if (essaySession !== session) return;
+        entry.correct = correct;
+        updateEssayEntry(row, correct);
+        updateEssayStatus(session.entries);
+      },
+      onError: (message, status) => {
+        if (essaySession !== session) return;
+        if (status === 403) {
+          closeEssayDialog();
+          showToast(message, true);
+        } else {
+          setText('essay-error', message);
+        }
+      },
+    });
+  } finally {
+    controls.forEach((control) => control.removeAttribute('aria-disabled'));
+  }
 }
 
 async function copy(value, label) {
@@ -526,13 +752,27 @@ async function copy(value, label) {
 }
 
 function renderJoinQr() {
-  const { joinUrl, roomCode } = state;
-  setText('qr-room-code', roomCode);
-  $('qr-student-link').href = joinUrl;
-  if (renderedQrUrl === joinUrl) return;
+  const { joinUrl, roomCode, participants } = state || {};
+  $('join-details').hidden = !roomCode;
+  $('qr-loading').hidden = Boolean(joinUrl);
+  setText('qr-room-code', roomCode || '');
+  setText('qr-participants', `${participants?.length || 0}명`);
 
+  const link = $('qr-student-link');
+  link.hidden = !joinUrl;
   const image = $('qr-image');
   const error = $('qr-error');
+  if (!joinUrl) {
+    link.removeAttribute('href');
+    image.removeAttribute('src');
+    image.hidden = true;
+    error.hidden = true;
+    renderedQrUrl = undefined;
+    return;
+  }
+  link.href = joinUrl;
+  if (renderedQrUrl === joinUrl) return;
+
   try {
     const qr = window.qrcode(0, 'M');
     qr.addData(joinUrl);
@@ -551,8 +791,9 @@ function renderJoinQr() {
 }
 
 function activateTab(name) {
-  if (presenting && name === 'participants') name = 'overview';
+  if (presenting || joining) name = 'overview';
   activeTab = name;
+  $('teacher-tabs').hidden = presenting || joining;
   tabs.forEach((tab) => {
     const selected = tab.dataset.tab === name;
     tab.classList.toggle('is-active', selected);
@@ -560,8 +801,25 @@ function activateTab(name) {
     if (tab.getAttribute('role') === 'tab') tab.tabIndex = selected ? 0 : -1;
   });
   document.querySelectorAll('[data-panel]').forEach((panel) => {
-    panel.hidden = panel.dataset.panel !== name;
+    panel.hidden = joining || panel.dataset.panel !== name;
   });
+}
+
+function setJoinScreen(active, focus = true) {
+  joining = active;
+  document.body.classList.toggle('is-joining', active);
+  $('join-screen').hidden = !active;
+  $('class-hero').hidden = active;
+  $('class-metrics').hidden = active;
+  if (active) {
+    managing = false;
+    closeEssayDialog();
+    closeQuestionDialog();
+    closeEssayTimeDialog();
+  }
+  activateTab('overview');
+  render();
+  if (focus) $(active ? 'join-heading' : 'question-heading').focus();
 }
 
 function listen(id, event, handler) {
@@ -602,7 +860,7 @@ listen('question-form', 'submit', async (event) => {
     message: editingId ? '문항을 수정했습니다.' : '문항을 추가했습니다.',
     after: ({ question }) => {
       selectedId = question.id;
-      $('question-dialog').close();
+      closeQuestionDialog();
     },
     onError: (message) => setText('question-error', message),
   });
@@ -610,6 +868,9 @@ listen('question-form', 'submit', async (event) => {
 });
 
 listen('question-form', 'change', syncQuestionType);
+listen('question-dialog', 'close', () => {
+  if (!$('question-dialog').open) $('grading-guide').value = '';
+});
 document.querySelectorAll('[data-dismiss]').forEach((button) => {
   button.addEventListener('click', () => button.closest('dialog')?.close());
 });
@@ -623,31 +884,89 @@ listen('question-list', 'click', (event) => {
 });
 
 listen('toggle-question-management', 'click', () => {
-  if (presenting || busy || !state) return;
+  if (joining || presenting || busy || !state) return;
   managing = !managing;
   render();
 });
 listen('add-question', 'click', () => openQuestionDialog());
 listen('edit-question', 'click', () => openQuestionDialog(selectedQuestion()));
-function releaseQuestion(question) {
-  if (!question || busy || state.stage === 'open') return;
-  managing = false;
-  selectedId = question.id;
-  render();
-  mutate('open', { id: question.id }, { message: '학생들의 답안을 받기 시작합니다.' });
+function closeEssayTimeDialog() {
+  pendingEssayId = null;
+  const dialog = $('essay-time-dialog');
+  if (dialog.open) dialog.close();
+  setText('essay-time-error', '');
 }
-listen('open-question', 'click', () => { if (managing) releaseQuestion(selectedQuestion()); });
-listen('next-question', 'click', () => { if (!managing) releaseQuestion(nextQuestion()); });
+
+function releaseQuestion(question, durationSeconds) {
+  mutate('open', { id: question.id, durationSeconds }, {
+    message: '학생들의 답안을 받기 시작합니다.',
+    after: () => {
+      managing = false;
+      selectedId = question.id;
+      closeEssayTimeDialog();
+    },
+    onError: (message) => {
+      if (pendingEssayId === question.id) setText('essay-time-error', message);
+      else showToast(message, true);
+    },
+  });
+}
+
+function prepareQuestion(question) {
+  if (joining || !question || busy || state.stage === 'open') return;
+  if (question.type !== 'essay') {
+    releaseQuestion(question);
+    return;
+  }
+  pendingEssayId = question.id;
+  setText('essay-time-error', '');
+  const input = $('essay-time-limit');
+  input.value = question.durationSeconds ?? defaultEssaySeconds;
+  $('essay-time-dialog').showModal();
+  input.select();
+}
+
+listen('open-question', 'click', () => { if (managing) prepareQuestion(selectedQuestion()); });
+listen('next-question', 'click', () => { if (!managing) prepareQuestion(nextQuestion()); });
+listen('essay-time-form', 'submit', (event) => {
+  event.preventDefault();
+  const question = questionToOpen();
+  if (busy || !pendingEssayId || question?.id !== pendingEssayId || state.stage === 'open') return;
+  setText('essay-time-error', '');
+  releaseQuestion(question, $('essay-time-limit').valueAsNumber);
+});
+listen('essay-time-cancel', 'click', closeEssayTimeDialog);
+listen('essay-time-dialog', 'cancel', (event) => {
+  if (busy) event.preventDefault();
+});
+listen('essay-time-dialog', 'close', () => {
+  if (!$('essay-time-dialog').open) closeEssayTimeDialog();
+});
 listen('close-question', 'click', () => {
   const activeId = state?.activeQuestionId;
+  const isEssay = releasedQuestion()?.type === 'essay';
   mutate('close', {}, {
-    message: '응답을 마감했습니다. 학생 화면에 채점 결과가 표시됩니다.',
+    message: isEssay ? '서술형 답안 접수를 마감했습니다.' : '응답을 마감했습니다. 학생 화면에 채점 결과가 표시됩니다.',
     after: () => { selectedId = activeId; },
   });
 });
 listen('wait-question', 'click', () => mutate('wait', {}, { message: '학생 화면을 대기 상태로 전환했습니다.' }));
+listen('grade-essay', 'click', (event) => openEssayDialog(state?.activeQuestionId, event.currentTarget));
+listen('history-list', 'click', (event) => {
+  const button = event.target.closest('[data-essay-id]');
+  if (button && !button.disabled) openEssayDialog(button.dataset.essayId, button);
+});
+listen('close-essay', 'click', closeEssayDialog);
+listen('essay-entries', 'click', gradeEssayEntry);
+listen('essay-dialog', 'cancel', (event) => {
+  event.preventDefault();
+  closeEssayDialog();
+});
+listen('essay-dialog', 'close', () => {
+  if (essaySession && !$('essay-dialog').open) closeEssayDialog();
+});
 listen('download-history', 'click', () => {
-  if (presenting || busy || !state?.history?.length) return;
+  if (presenting || busy || !state?.history?.length || hasPendingExport(state.history)) return;
   try {
     const workbook = window.createHistoryWorkbook(state.history);
     const url = URL.createObjectURL(workbook);
@@ -671,29 +990,28 @@ listen('reset-class', 'click', () => {
   mutate('reset', {}, {
     message: '새 수업이 시작되었습니다. 새로운 참여 링크를 공유하세요.',
     after: () => {
+      state = null;
       selectedId = null;
-      managing = false;
-      activateTab('overview');
+      setJoinScreen(true);
     },
   });
 });
 listen('copy-code', 'click', () => copy(state?.roomCode, '참여 코드'));
 listen('copy-link', 'click', () => copy(state?.joinUrl, '참여 링크'));
-listen('show-qr', 'click', () => {
-  if (!state?.joinUrl) return;
-  renderJoinQr();
-  $('qr-dialog').showModal();
-});
+listen('copy-join-link', 'click', () => copy(state?.joinUrl, '참여 링크'));
+listen('show-qr', 'click', () => { if (state?.joinUrl) setJoinScreen(true); });
+listen('enter-class', 'click', () => { if (state) setJoinScreen(false); });
 
 function setPresentation(active) {
   presenting = active;
   document.body.classList.toggle('is-projecting', active);
   if (active) {
     managing = false;
-    $('question-dialog')?.close();
-    if (activeTab === 'participants') activateTab('overview');
+    closeQuestionDialog();
+    closeEssayDialog();
+    closeEssayTimeDialog();
   }
-  $('participants-tab').hidden = active;
+  activateTab(active ? 'overview' : activeTab);
   const button = $('fullscreen');
   const label = active ? '발표 종료' : '발표 화면';
   button.setAttribute('aria-pressed', String(active));

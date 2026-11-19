@@ -24,7 +24,9 @@ const seedQuestions = [
     acceptedAnswers: [],
   },
 ];
-const answerDurationMs = 30_000;
+const standardAnswerSeconds = 30;
+const defaultEssaySeconds = 120;
+const maxEssaySeconds = 900;
 const essayLimit = 2_000;
 
 export class ApiError extends Error {
@@ -167,8 +169,13 @@ export function readStudentState(state, code, participantToken, now = Date.now()
   );
   let visibleQuestion = null;
   if (question) {
-    const { id, type, title, options } = question;
-    visibleQuestion = showResult && participant && type !== 'essay' ? question : { id, type, title, options };
+    const { id, type, title, options, category, chapter, topic } = question;
+    visibleQuestion = { id, type, title, options };
+    if (category) visibleQuestion.category = category;
+    if (chapter) visibleQuestion.chapter = chapter;
+    if (showResult && topic) visibleQuestion.topic = topic;
+    if (showResult && participant && type === 'multiple') visibleQuestion.correctIndex = question.correctIndex;
+    if (showResult && participant && type === 'short') visibleQuestion.acceptedAnswers = question.acceptedAnswers;
   }
   return {
     roomCode: state.roomCode,
@@ -187,10 +194,33 @@ function cleanText(value, maxLength, message) {
   return result;
 }
 
+function validateEssayDuration(seconds = defaultEssaySeconds) {
+  if (!Number.isInteger(seconds) || seconds < standardAnswerSeconds || seconds > maxEssaySeconds) {
+    throw new ApiError(400, '서술형 제한시간은 30~900초 사이의 정수로 입력해 주세요.');
+  }
+  return seconds;
+}
+
+function questionLabel(value, label, limit) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || [...value.trim()].length > limit) {
+    throw new ApiError(400, `${label} 입력은 ${limit}자까지 가능합니다.`);
+  }
+  return value.trim() || undefined;
+}
+
+function questionSource({ chapter, topic }) {
+  return { chapter: questionLabel(chapter, '교재 챕터', 60), topic: questionLabel(topic, '교재 목차', 120) };
+}
+
 function validateQuestion(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, '문제의 형식을 확인해 주세요.');
   const title = cleanText(body.title, 250, '문제를 1~250자로 입력해 주세요.');
   const question = { type: body.type, title, options: [], correctIndex: null, acceptedAnswers: [] };
+  const labels = { category: questionLabel(body.category, '문제 분류', 60), ...questionSource(body) };
+  for (const [key, value] of Object.entries(labels)) {
+    if (value) question[key] = value;
+  }
   if (body.type === 'multiple') {
     if (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 6) {
       throw new ApiError(400, '객관식 보기를 2~6개 입력해 주세요.');
@@ -215,6 +245,7 @@ function validateQuestion(body) {
       throw new ApiError(400, '채점 기준은 2,000자까지 입력할 수 있습니다.');
     }
     question.gradingGuide = guide.trim();
+    if (body.durationSeconds !== undefined) question.durationSeconds = validateEssayDuration(body.durationSeconds);
   } else {
     throw new ApiError(400, '객관식, 단답형 또는 서술형을 선택해 주세요.');
   }
@@ -226,11 +257,33 @@ function saveQuestion(state, body, randomUUID) {
   if (existing && state.responses.some((response) => response.questionId === existing.id)) {
     throw new ApiError(409, '답안을 받은 문제는 수정할 수 없습니다. 새 문제를 만들어 주세요.');
   }
-  const question = { id: existing?.id || randomUUID(), ...validateQuestion(body) };
+  const { category, chapter, topic, durationSeconds } = existing || {};
+  const question = { id: existing?.id || randomUUID(), ...validateQuestion({ category, chapter, topic, durationSeconds, ...body }) };
   const questions = existing
     ? state.questions.map((saved) => saved.id === question.id ? question : saved)
     : [...state.questions, question];
   return { state: { ...state, questions }, status: existing ? 200 : 201, payload: { question } };
+}
+
+function updateQuestionSources(state, { sources }) {
+  if (!Array.isArray(sources) || sources.length === 0) {
+    throw new ApiError(400, '출처를 표시할 문제를 입력해 주세요.');
+  }
+  const labels = new Map();
+  for (const source of sources) {
+    if (!source || typeof source.id !== 'string' || labels.has(source.id)) {
+      throw new ApiError(400, '각 문제의 출처를 한 번만 입력해 주세요.');
+    }
+    const question = requiredQuestion(state, source.id);
+    if (question.title !== source.title) throw new ApiError(409, '문제 내용이 바뀌었습니다. 문제 목록을 다시 확인해 주세요.');
+    labels.set(question.id, questionSource(source));
+  }
+  const questions = state.questions.map((question) => {
+    const source = labels.get(question.id);
+    if (!source || (source.chapter === question.chapter && source.topic === question.topic)) return question;
+    return { ...question, ...source };
+  });
+  return accepted(questions.every((question, index) => question === state.questions[index]) ? state : { ...state, questions });
 }
 
 function closeQuestion(state, closedAt) {
@@ -247,9 +300,8 @@ function closeQuestion(state, closedAt) {
   return { ...state, stage: 'closed', closesAt: null, history: [entry, ...(state.history || [])] };
 }
 
-function bankDefinitions(questions) {
-  return JSON.stringify(questions.map(({ type, title, options, correctIndex, acceptedAnswers, gradingGuide }) =>
-    [type, title, options, correctIndex, acceptedAnswers, gradingGuide || '']));
+function questionDefinition({ type, title, options, correctIndex, acceptedAnswers, gradingGuide }) {
+  return JSON.stringify([type, title, options, correctIndex, acceptedAnswers, gradingGuide || '']);
 }
 
 function replaceQuestions(state, body, { now, randomUUID }) {
@@ -257,16 +309,39 @@ function replaceQuestions(state, body, { now, randomUUID }) {
     throw new ApiError(400, '교체할 문제를 한 개 이상 입력해 주세요.');
   }
   const definitions = body.questions.map(validateQuestion);
-  if (bankDefinitions(definitions) === bankDefinitions(state.questions)) return accepted(state);
+  const storedByDefinition = new Map();
+  for (const question of state.questions) {
+    const key = questionDefinition(question);
+    const matches = storedByDefinition.get(key) ?? [];
+    matches.push(question);
+    storedByDefinition.set(key, matches);
+  }
+  const questions = definitions.map((question) => {
+    const matching = storedByDefinition.get(questionDefinition(question))?.shift();
+    if (!matching) return { id: randomUUID(), ...question };
+    if (question.durationSeconds === undefined && matching.durationSeconds !== undefined) {
+      question.durationSeconds = matching.durationSeconds;
+    }
+    const { category, chapter, topic, durationSeconds } = matching;
+    if (category === question.category && chapter === question.chapter && topic === question.topic && durationSeconds === question.durationSeconds) {
+      return matching;
+    }
+    return { id: matching.id, ...question };
+  });
+  if (questions.length === state.questions.length && questions.every((question, index) => question.id === state.questions[index].id)) {
+    const sameQuestions = questions.every((question, index) => question === state.questions[index]);
+    return accepted(sameQuestions ? state : { ...state, questions });
+  }
 
   const archived = state.stage === 'open' ? closeQuestion(state, now) : state;
+  const activeIds = new Set(questions.map(({ id }) => id));
   return accepted({
     ...archived,
     stage: 'waiting',
     activeQuestionId: null,
     closesAt: null,
-    questions: definitions.map((question) => ({ id: randomUUID(), ...question })),
-    archivedQuestions: [...(state.archivedQuestions || []), ...state.questions],
+    questions,
+    archivedQuestions: [...(state.archivedQuestions || []), ...state.questions.filter(({ id }) => !activeIds.has(id))],
   });
 }
 
@@ -310,7 +385,10 @@ function gradeEssay(state, body) {
 
 export function settleQuizTimer(state, now = Date.now()) {
   if (state.stage !== 'open') return state;
-  if (!Number.isSafeInteger(state.closesAt)) return { ...state, closesAt: now + answerDurationMs };
+  if (!Number.isSafeInteger(state.closesAt)) {
+    const durationSeconds = findQuestion(state, state.activeQuestionId)?.durationSeconds ?? standardAnswerSeconds;
+    return { ...state, closesAt: now + durationSeconds * 1000 };
+  }
   return now >= state.closesAt ? closeQuestion(state, state.closesAt) : state;
 }
 
@@ -406,15 +484,25 @@ export function applyQuizMutation(state, action, body, context) {
   switch (action) {
     case 'questions':
       return saveQuestion(state, body, context.randomUUID);
+    case 'question-sources':
+      return updateQuestionSources(state, body);
     case 'replace-questions':
       return replaceQuestions(state, body, { now, randomUUID: context.randomUUID });
     case 'essay-grade':
       return gradeEssay(state, body);
-    case 'open':
-      requiredQuestion(state, body.id);
+    case 'open': {
+      const question = requiredQuestion(state, body.id);
       if (state.activeQuestionId === body.id && state.stage === 'open') return accepted(state);
       if (state.activeQuestionId !== body.id) requireClosedCollection(state);
-      return accepted({ ...state, activeQuestionId: body.id, stage: 'open', closesAt: now + answerDurationMs });
+      const isEssay = question.type === 'essay';
+      const durationSeconds = isEssay
+        ? validateEssayDuration(body.durationSeconds === undefined ? question.durationSeconds : body.durationSeconds)
+        : standardAnswerSeconds;
+      const questions = isEssay && durationSeconds !== question.durationSeconds
+        ? state.questions.map((saved) => saved.id === question.id ? { ...saved, durationSeconds } : saved)
+        : state.questions;
+      return accepted({ ...state, questions, activeQuestionId: body.id, stage: 'open', closesAt: now + durationSeconds * 1000 });
+    }
     case 'close':
       return accepted(closeQuestion(state, now));
     case 'wait':

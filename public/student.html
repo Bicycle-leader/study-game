@@ -32,13 +32,18 @@
           <p id="panel-label" class="panel-label">실시간 퀴즈</p>
           <span id="room-label" class="room-label" hidden></span>
         </div>
+        <dl class="question-source" id="question-source" hidden>
+          <div id="question-category-row" hidden><dt>구분</dt><dd id="question-category"></dd></div>
+          <div id="question-chapter-row" hidden><dt>챕터</dt><dd id="question-chapter"></dd></div>
+          <div id="question-topic-row" hidden><dt>목차</dt><dd id="question-topic"></dd></div>
+        </dl>
         <h1 id="page-title" tabindex="-1">수업 참여하기</h1>
         <p class="intro" id="intro">강사가 알려준 입장 코드와 화면에 표시할 닉네임을 입력하세요.</p>
 
         <div class="question-timer" id="question-timer" hidden>
           <span class="timer-icon" aria-hidden="true"></span>
           <span id="timer-status">남은 시간</span>
-          <span class="countdown" id="countdown" role="timer" aria-labelledby="timer-status" aria-live="off">00:30</span>
+          <span class="countdown" id="countdown" role="timer" aria-labelledby="timer-status" aria-live="off">00:00</span>
         </div>
 
         <form class="join-form" id="join-form">
