@@ -197,7 +197,8 @@ function refreshCountdown() {
   if (!timer.hidden) {
     const seconds = closed ? 0 : Math.ceil(remaining / 1000);
     const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-    const message = closed ? '접수 마감' : '남은 시간';
+    const allSubmitted = state?.stage === 'closed' && state.closeReason === 'all-submitted';
+    const message = allSubmitted ? '접수 마감 · 전원 제출' : closed ? '접수 마감' : '남은 시간';
     if (ui.countdown.textContent !== time) ui.countdown.textContent = time;
     if (ui['timer-status'].textContent !== message) ui['timer-status'].textContent = message;
     timer.classList.toggle('is-urgent', !closed && seconds <= 10);
@@ -279,9 +280,13 @@ function render() {
       if (essay && response && typeof response.correct !== 'boolean') {
         ui.intro.textContent = '강사가 채점하면 결과가 표시됩니다.';
       } else {
-        ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '강사가 문제를 마감하면 채점 결과가 표시됩니다.';
+        ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '접수가 마감되면 채점 결과가 표시됩니다.';
       }
-      if (!expired) announce(`${closed}-${question.id}-${result}`, topic ? `${result}. 목차 ${topic}` : result);
+      if (!expired) {
+        const closeNotice = closed && state.closeReason === 'all-submitted' ? '참여 학생 전원이 답안을 제출해 접수가 마감되었습니다' : '';
+        const details = [closeNotice, result, topic ? `목차 ${topic}` : ''].filter(Boolean).join('. ');
+        announce(`${closed}-${question.id}-${result}`, details);
+      }
     }
   }
 

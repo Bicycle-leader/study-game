@@ -149,6 +149,11 @@ function readHistoryEntry(state, entry) {
   return { ...entry, optionCounts: matchesEntry ? optionCounts : [] };
 }
 
+function currentCloseReason(state) {
+  const latest = state.history?.[0];
+  return state.stage === 'closed' && latest?.questionId === state.activeQuestionId ? latest?.closeReason ?? null : null;
+}
+
 export function readTeacherState(state, joinUrl, now = Date.now()) {
   const question = findQuestion(state, state.activeQuestionId);
   const scope = state.scope ?? defaultQuestionScope;
@@ -161,6 +166,7 @@ export function readTeacherState(state, joinUrl, now = Date.now()) {
     stage: state.stage,
     activeQuestionId: state.activeQuestionId,
     closesAt: state.stage === 'open' ? state.closesAt ?? null : null,
+    closeReason: currentCloseReason(state),
     serverNow: now,
     questions: state.questions,
     scope,
@@ -198,6 +204,7 @@ export function readStudentState(state, code, participantToken, now = Date.now()
     roomCode: state.roomCode,
     stage: state.stage,
     closesAt: state.stage === 'open' ? state.closesAt ?? null : null,
+    closeReason: currentCloseReason(state),
     serverNow: now,
     question: visibleQuestion,
     participant: publicParticipant(participant),
@@ -322,7 +329,7 @@ function updateQuestionSources(state, { sources }) {
   return accepted(questions.every((question, index) => question === state.questions[index]) ? state : { ...state, questions });
 }
 
-function closeQuestion(state, closedAt) {
+function closeQuestion(state, closedAt, reason) {
   if (state.stage === 'closed') return state;
   if (state.stage !== 'open') throw new ApiError(409, '채점할 문제가 열려 있지 않습니다.');
   const question = requiredQuestion(state, state.activeQuestionId);
@@ -333,7 +340,23 @@ function closeQuestion(state, closedAt) {
     closedAt: new Date(closedAt).toISOString(),
     ...summarizeQuestion(state, question),
   };
+  if (reason) entry.closeReason = reason;
   return { ...state, stage: 'closed', closesAt: null, history: [entry, ...(state.history || [])] };
+}
+
+function allParticipantsSubmitted(state, questionId) {
+  if (!state.participants.length || state.responses.length < state.participants.length) return false;
+  const awaiting = new Set(state.participants.map(({ id }) => id));
+  for (const response of state.responses) {
+    if (response.questionId !== questionId) continue;
+    awaiting.delete(response.participantId);
+    if (!awaiting.size) return true;
+  }
+  return false;
+}
+
+function closeIfEveryoneSubmitted(state, now) {
+  return allParticipantsSubmitted(state, state.activeQuestionId) ? closeQuestion(state, now, 'all-submitted') : state;
 }
 
 function questionDefinition({ type, title, options, correctIndex, acceptedAnswers, gradingGuide }) {
@@ -422,11 +445,12 @@ function gradeEssay(state, body) {
 
 export function settleQuizTimer(state, now = Date.now()) {
   if (state.stage !== 'open') return state;
+  if (Number.isSafeInteger(state.closesAt) && now >= state.closesAt) return closeQuestion(state, state.closesAt);
   if (!Number.isSafeInteger(state.closesAt)) {
     const durationSeconds = findQuestion(state, state.activeQuestionId)?.durationSeconds ?? standardAnswerSeconds;
-    return { ...state, closesAt: now + durationSeconds * 1000 };
+    return closeIfEveryoneSubmitted({ ...state, closesAt: now + durationSeconds * 1000 }, now);
   }
-  return now >= state.closesAt ? closeQuestion(state, state.closesAt) : state;
+  return closeIfEveryoneSubmitted(state, now);
 }
 
 function resetRoom(state, randomHex) {
@@ -499,7 +523,7 @@ function submitAnswer(state, body, { participantToken, now, randomUUID }) {
   };
   if (question.type === 'essay') response.reviewId = randomUUID();
   return {
-    state: { ...state, responses: [...state.responses, response] },
+    state: closeIfEveryoneSubmitted({ ...state, responses: [...state.responses, response] }, now),
     status: 201,
     payload: { response: publicResponse(response, question, false) },
   };
@@ -535,6 +559,8 @@ export function applyQuizMutation(state, action, body, context) {
       if (!matchesQuestionScope(question, state.scope ?? defaultQuestionScope)) {
         throw new ApiError(409, '선택한 출제 범위에 속하지 않는 문항입니다.');
       }
+      const alreadyComplete = allParticipantsSubmitted(state, question.id);
+      if (alreadyComplete && state.activeQuestionId === question.id && state.stage === 'closed') return accepted(state);
       if (state.activeQuestionId !== body.id) requireClosedCollection(state);
       const isEssay = question.type === 'essay';
       const durationSeconds = isEssay
@@ -543,14 +569,15 @@ export function applyQuizMutation(state, action, body, context) {
       const questions = isEssay && durationSeconds !== question.durationSeconds
         ? state.questions.map((saved) => saved.id === question.id ? { ...saved, durationSeconds } : saved)
         : state.questions;
-      return accepted({
+      const opened = {
         ...state,
         questions,
         activeQuestionId: body.id,
         scopeLastQuestionId: body.id,
         stage: 'open',
         closesAt: now + durationSeconds * 1000,
-      });
+      };
+      return accepted(alreadyComplete ? closeQuestion(opened, now, 'all-submitted') : opened);
     }
     case 'close':
       return accepted(closeQuestion(state, now));

@@ -307,7 +307,8 @@ function renderQuestion() {
   setText('current-question-number', index === null ? '' : `문항 ${String(index).padStart(2, '0')}`);
   setText('question-title', question?.title || (managing ? '문항을 선택해 주세요' : '아직 열린 문제가 없습니다'));
   setText('question-kind', question ? kindLabels[question.type] : '');
-  setText('question-state', stageLabels[questionStage] || '미리 보기');
+  const allSubmitted = questionStage === 'closed' && state.closeReason === 'all-submitted';
+  setText('question-state', allSubmitted ? '접수 마감 · 전원 제출' : stageLabels[questionStage] || '미리 보기');
   const chapter = question?.chapter || question?.category;
   const group = question?.category !== chapter ? question?.category : '';
   const topic = !presenting || questionStage === 'closed' ? question?.topic : '';
