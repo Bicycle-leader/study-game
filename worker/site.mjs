@@ -26,7 +26,7 @@ async function requireTeacher(request, env) {
   const match = token.match(/^Bearer (\d{10})\.([0-9a-f]{32})\.([A-Za-z0-9+/]{43}=)$/);
   if (match && Number(match[1]) > Math.floor(Date.now() / 1000)) {
     const signature = Uint8Array.from(atob(match[3]), (character) => character.charCodeAt(0));
-    if (await crypto.subtle.verify('HMAC', await sessionKey(env.TEACHER_KEY), signature, encoder.encode(`${match[1]}.${match[2]}`))) return;
+    if (await crypto.subtle.verify('HMAC', await sessionKey(env.TEACHER_SESSION_SECRET), signature, encoder.encode(`${match[1]}.${match[2]}`))) return;
   }
   throw new ApiError(401, '강사 로그인이 필요합니다.');
 }
@@ -47,7 +47,7 @@ async function login(request, env) {
   if (!isOwner && !(await matchesKey(key, env.TEACHER_KEY))) {
     throw new ApiError(401, '사이트를 만든 ChatGPT 계정으로 로그인하거나 강사 접속 키를 확인해 주세요.');
   }
-  return json({ token: await issueTeacherToken(env.TEACHER_KEY) });
+  return json({ token: await issueTeacherToken(env.TEACHER_SESSION_SECRET) });
 }
 
 async function readJson(request) {

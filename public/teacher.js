@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 const kindLabels = { multiple: '객관식', short: '단답형' };
 const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '채점 완료' };
 const optionMarkers = ['A', 'B', 'C', 'D'];
+const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, optionCounts: [] };
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
 const rendered = new Map();
 const tabs = Array.from(document.querySelectorAll('[data-tab]'));
@@ -16,6 +17,8 @@ let busy = false;
 let revision = 0;
 let toastTimeout;
 let renderedQrUrl;
+let presenting = false;
+let activeTab = 'overview';
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -91,19 +94,19 @@ function syncControls() {
   const isOpen = state?.stage === 'open';
   const isWaiting = !state || state.stage === 'waiting';
   const isUsed = question && (
-    (isActive && state.responses.length > 0) ||
+    (isActive && state.summary?.total > 0) ||
     state.history?.some((entry) => entry.questionId === question.id && entry.total > 0)
   );
   const controls = {
-    'add-question': { disabled: busy || !state },
-    'edit-question': { disabled: busy || !question || Boolean(isUsed) },
+    'add-question': { disabled: busy || !state, hidden: presenting },
+    'edit-question': { disabled: busy || !question || Boolean(isUsed), hidden: presenting },
     'open-question': { disabled: busy || !question || (isActive && isOpen), hidden: isActive && isOpen },
     'close-question': { disabled: busy || !isOpen, hidden: !isOpen },
     'wait-question': { disabled: busy || isWaiting, hidden: isWaiting || isOpen },
     'copy-code': { disabled: !state },
     'copy-link': { disabled: !state },
     'show-qr': { disabled: !state?.joinUrl },
-    'reset-class': { disabled: busy || !state },
+    'reset-class': { disabled: busy || !state, hidden: presenting },
   };
   for (const [id, properties] of Object.entries(controls)) {
     const node = $(id);
@@ -148,12 +151,14 @@ function renderQuestion() {
   const badge = $('question-state');
   if (badge) badge.dataset.stage = questionStage;
 
-  renderList('question-options', question, () => {
+  const showKey = !presenting || questionStage === 'closed';
+  renderList('question-options', [question, showKey], () => {
     if (!question) return [];
     const isShort = question.type === 'short';
+    if (isShort && !showKey) return [];
     const answers = isShort ? question.acceptedAnswers : question.options;
     return answers.map((answer, index) => {
-      const isCorrect = isShort || index === question.correctIndex;
+      const isCorrect = showKey && (isShort || index === question.correctIndex);
       const row = el('div', 'question-option');
       row.classList.toggle('is-correct', isCorrect);
       const marker = el('span', 'option-marker', isShort ? '✓' : (optionMarkers[index] || index + 1));
@@ -165,60 +170,79 @@ function renderQuestion() {
   });
 }
 
-function renderResponses() {
-  const { activeQuestionId, responses, stage } = state;
-  const activeQuestion = state.questions.find((question) => question.id === activeQuestionId);
-  const correctCount = responses.filter((response) => response.correct === true).length;
-  const rate = responses.length ? Math.round(100 * correctCount / responses.length) : 0;
-  setText('response-count', `${responses.length}건`);
-  setText('response-question-title', activeQuestion && selectedId !== activeQuestionId ? activeQuestion.title : '');
-  setText('metric-submissions', responses.length);
-  setText('metric-correct', correctCount);
-  setText('metric-rate', `${rate}%`);
+function accuracy({ correctCount, total }) {
+  return total ? `${Math.round(100 * correctCount / total)}%` : '0%';
+}
 
-  renderList('response-list', [activeQuestion, responses, stage], () => {
-    if (!responses.length) {
-      return [empty('아직 제출된 답안이 없습니다', '학생이 답안을 제출하면 여기에 표시됩니다.')];
+function countBreakdown(items, total, kind) {
+  const list = el('ul', `${kind}-count-list count-breakdown`);
+  for (const { label, count, result } of items) {
+    const row = el('li', `${kind}-count-row`);
+    if (result) row.dataset.result = result;
+    const meter = el('meter', 'count-meter');
+    meter.max = Math.max(1, total);
+    meter.value = count;
+    meter.setAttribute('aria-hidden', 'true');
+    row.append(
+      el('span', `${kind}-count-label`, label),
+      el('strong', `${kind}-count-value`, `${count}건`),
+      meter,
+    );
+    list.append(row);
+  }
+  return list;
+}
+
+function renderResponseSummary() {
+  const { activeQuestionId, summary = emptySummary, stage } = state;
+  const activeQuestion = state.questions.find((question) => question.id === activeQuestionId);
+  const hideResults = presenting && stage === 'open';
+  setText('response-count', `${summary.total}건`);
+  setText('response-question-title', activeQuestion && selectedId !== activeQuestionId ? activeQuestion.title : '');
+  setText('metric-submissions', summary.total);
+  setText('metric-correct', hideResults ? '' : summary.correctCount);
+  setText('metric-rate', hideResults ? '' : accuracy(summary));
+
+  renderList('response-list', [activeQuestion?.id, hideResults ? null : summary], () => {
+    if (hideResults) return [];
+    if (!activeQuestion) return [empty('출제된 문항이 없습니다', '문제를 열면 제출 현황을 볼 수 있습니다.')];
+    if (activeQuestion.type === 'multiple') {
+      return [countBreakdown(summary.optionCounts, summary.total, 'option')];
     }
-    return [...responses].reverse().map((response) => {
-      const row = el('div', 'response-row');
-      const name = el('strong', 'response-name', response.nickname);
-      const text = activeQuestion?.type === 'multiple'
-        ? (activeQuestion.options[response.value] ?? response.value)
-        : response.value;
-      const copy = el('div', 'response-copy');
-      copy.append(name, el('span', 'response-value', text));
-      const result = response.correct === true ? 'correct' : response.correct === false ? 'incorrect' : 'pending';
-      const label = { correct: '정답', incorrect: '오답', pending: '채점 대기' }[result];
-      const avatar = el('span', 'response-avatar', Array.from(response.nickname)[0] || '?');
-      avatar.setAttribute('aria-hidden', 'true');
-      row.append(avatar, copy, el('span', `response-result is-${result}`, label));
-      return row;
-    });
+    return [countBreakdown([
+      { label: '정답', count: summary.correctCount, result: 'correct' },
+      { label: '오답', count: summary.incorrectCount, result: 'incorrect' },
+    ], summary.total, 'grade')];
   });
 }
 
 function renderHistory() {
   const history = state.history || [];
-  renderList('history-list', history, () => {
-    if (!history.length) return [empty('아직 채점 기록이 없습니다', '응답을 마감하면 문항의 채점 결과가 기록됩니다.')];
+  const visibleHistory = presenting && state.stage === 'open'
+    ? history.filter((entry) => entry.questionId !== state.activeQuestionId)
+    : history;
+  renderList('history-list', visibleHistory, () => {
+    if (!visibleHistory.length) return [empty('표시할 응답 기록이 없습니다', '응답을 마감하면 문항의 채점 결과가 기록됩니다.')];
 
-    return history.map((record) => {
+    return visibleHistory.map((record) => {
       const row = el('div', 'history-row');
       const title = el('strong', 'history-title', record.title);
-      const detail = `${kindLabels[record.type]} · ${formatDate(record.closedAt)} · 제출 ${record.total}건 · 정답 ${record.correctCount}건 · 오답 ${record.incorrectCount}건`;
+      const detail = `${kindLabels[record.type]} · ${formatDate(record.closedAt)} · 제출 ${record.total}건 · 정답 ${record.correctCount}건 · 오답 ${record.incorrectCount}건 · 정답률 ${accuracy(record)}`;
       row.append(title, el('span', 'history-detail', detail));
+      if (record.optionCounts?.length) row.append(countBreakdown(record.optionCounts, record.total, 'option'));
       return row;
     });
   });
 }
 
 function renderParticipants() {
-  renderList('participant-list', state.participants, () => {
-    if (!state.participants.length) {
+  const participants = presenting ? [] : state.participants;
+  renderList('participant-list', [presenting, participants], () => {
+    if (presenting) return [];
+    if (!participants.length) {
       return [empty('아직 참여한 학생이 없습니다', '참여 링크 또는 강의실 코드를 학생에게 공유해 주세요.')];
     }
-    return state.participants.map((participant) => {
+    return participants.map((participant) => {
       const row = el('div', 'participant-row');
       row.append(el('strong', 'participant-name', participant.nickname));
       row.append(el('span', 'participant-detail', `${formatDate(participant.joinedAt)} 입장`));
@@ -245,7 +269,7 @@ function render() {
   if ($('qr-dialog')?.open) renderJoinQr();
   renderQuestionList();
   renderQuestion();
-  renderResponses();
+  renderResponseSummary();
   renderHistory();
   renderParticipants();
   syncControls();
@@ -465,6 +489,8 @@ function renderJoinQr() {
 }
 
 function activateTab(name) {
+  if (presenting && name === 'participants') name = 'overview';
+  activeTab = name;
   tabs.forEach((tab) => {
     const selected = tab.dataset.tab === name;
     tab.classList.toggle('is-active', selected);
@@ -567,12 +593,19 @@ listen('show-qr', 'click', () => {
 });
 
 function setPresentation(active) {
+  presenting = active;
   document.body.classList.toggle('is-projecting', active);
+  if (active) {
+    $('question-dialog')?.close();
+    if (activeTab === 'participants') activateTab('overview');
+  }
+  $('participants-tab').hidden = active;
   const button = $('fullscreen');
   const label = active ? '발표 종료' : '발표 화면';
   button.setAttribute('aria-pressed', String(active));
   button.setAttribute('aria-label', label);
   setText('fullscreen-label', label);
+  render();
 }
 
 listen('fullscreen', 'click', async () => {
@@ -587,13 +620,16 @@ listen('fullscreen', 'click', async () => {
 });
 document.addEventListener('fullscreenchange', () => setPresentation(Boolean(document.fullscreenElement)));
 
-tabs.forEach((tab, index) => {
+tabs.forEach((tab) => {
   tab.addEventListener('click', () => activateTab(tab.dataset.tab));
   tab.addEventListener('keydown', (event) => {
-    const destinations = { ArrowLeft: (index - 1 + tabs.length) % tabs.length, ArrowRight: (index + 1) % tabs.length, Home: 0, End: tabs.length - 1 };
+    const visibleTabs = tabs.filter((item) => !item.hidden);
+    const index = visibleTabs.indexOf(tab);
+    const count = visibleTabs.length;
+    const destinations = { ArrowLeft: (index - 1 + count) % count, ArrowRight: (index + 1) % count, Home: 0, End: count - 1 };
     if (!Object.hasOwn(destinations, event.key)) return;
     event.preventDefault();
-    const destination = tabs[destinations[event.key]];
+    const destination = visibleTabs[destinations[event.key]];
     activateTab(destination.dataset.tab);
     destination.focus();
   });

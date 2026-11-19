@@ -91,6 +91,38 @@ function requiredQuestion(state, id) {
   return question;
 }
 
+function summarizeResponses(question, responses) {
+  const optionCounts = question?.type === 'multiple'
+    ? question.options.map((label) => ({ label, count: 0 }))
+    : [];
+  let correctCount = 0;
+  for (const { value } of responses) {
+    if (gradeQuestion(question, value)) correctCount += 1;
+    if (Number.isInteger(value) && optionCounts[value]) optionCounts[value].count += 1;
+  }
+  return { total: responses.length, correctCount, incorrectCount: responses.length - correctCount, optionCounts };
+}
+
+function summarizeQuestion(state, question) {
+  const responses = question ? state.responses.filter((response) => response.questionId === question.id) : [];
+  return summarizeResponses(question, responses);
+}
+
+function readHistoryEntry(state, entry) {
+  if (Array.isArray(entry.optionCounts)) return entry;
+  const question = findQuestion(state, entry.questionId);
+  if (entry.type !== 'multiple' || question?.type !== 'multiple' || !Number.isInteger(entry.total) || entry.total < 1) {
+    return { ...entry, optionCounts: [] };
+  }
+  // A reopened question retains its earlier responses and appends new ones.
+  const responses = state.responses.filter((response) => response.questionId === question.id).slice(0, entry.total);
+  const { total, correctCount, incorrectCount, optionCounts } = summarizeResponses(question, responses);
+  const counted = optionCounts.reduce((sum, option) => sum + option.count, 0);
+  const matchesEntry = total === entry.total && counted === total
+    && correctCount === entry.correctCount && incorrectCount === entry.incorrectCount;
+  return { ...entry, optionCounts: matchesEntry ? optionCounts : [] };
+}
+
 export function readTeacherState(state, joinUrl) {
   const question = findQuestion(state, state.activeQuestionId);
   return {
@@ -99,10 +131,8 @@ export function readTeacherState(state, joinUrl) {
     activeQuestionId: state.activeQuestionId,
     questions: state.questions,
     participants: state.participants.map(publicParticipant),
-    responses: state.responses
-      .filter((response) => response.questionId === question?.id)
-      .map((response) => publicResponse(response, question, true)),
-    history: state.history || [],
+    summary: summarizeQuestion(state, question),
+    history: (state.history || []).map((entry) => readHistoryEntry(state, entry)),
     joinUrl,
   };
 }
@@ -176,16 +206,12 @@ function closeQuestion(state) {
   if (state.stage === 'closed') return state;
   if (state.stage !== 'open') throw new ApiError(409, '채점할 문제가 열려 있지 않습니다.');
   const question = requiredQuestion(state, state.activeQuestionId);
-  const responses = state.responses.filter((response) => response.questionId === question.id);
-  const correctCount = responses.filter((response) => gradeQuestion(question, response.value)).length;
   const entry = {
     questionId: question.id,
     title: question.title,
     type: question.type,
     closedAt: new Date().toISOString(),
-    total: responses.length,
-    correctCount,
-    incorrectCount: responses.length - correctCount,
+    ...summarizeQuestion(state, question),
   };
   return { ...state, stage: 'closed', history: [entry, ...(state.history || [])] };
 }
