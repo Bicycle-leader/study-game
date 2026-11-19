@@ -59,6 +59,7 @@
         <div class="join-details" id="join-details" hidden>
           <div><span>수업 코드</span><strong id="qr-room-code"></strong></div>
           <div><span>참여 학생</span><strong id="qr-participants">0명</strong></div>
+          <div><span>제출 학생</span><strong id="qr-submissions">0명</strong></div>
         </div>
         <div class="join-actions">
           <button class="button qr-button" id="enter-class" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>출제 화면 열기</button>
@@ -93,8 +94,8 @@
     </section>
 
     <section class="metrics" id="class-metrics" aria-label="수업 현황" hidden>
-      <div class="metric"><span class="metric-icon"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg></span><div><p>참여 학생</p><strong id="metric-participants">0</strong></div></div>
-      <div class="metric"><span class="metric-icon paper-icon"><svg class="icon" aria-hidden="true"><use href="#i-paper"/></svg></span><div><p>제출 답안</p><strong id="metric-submissions">0</strong></div></div>
+      <div class="metric"><span class="metric-icon"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg></span><div><p>참여 학생</p><strong id="metric-participants">0명</strong></div></div>
+      <div class="metric"><span class="metric-icon paper-icon"><svg class="icon" aria-hidden="true"><use href="#i-paper"/></svg></span><div><p>제출 학생</p><strong id="metric-submissions">0명</strong></div></div>
       <div class="metric" data-grading-metric><span class="metric-icon check-icon"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span><div><p>정답</p><strong id="metric-correct">0</strong></div></div>
       <div class="metric" data-grading-metric><span class="metric-icon target-icon"><svg class="icon" aria-hidden="true"><use href="#i-target"/></svg></span><div><p id="metric-rate-label">정답률</p><strong id="metric-rate">0%</strong></div></div>
     </section>
@@ -118,6 +119,13 @@
             <button class="button edit-button" type="button" id="edit-question" hidden><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg>수정</button>
             <button class="button button-secondary" type="button" id="toggle-question-management" aria-expanded="false" aria-controls="bank-panel" disabled>문제 목록 보기</button>
           </div>
+        </div>
+        <div class="scope-controls" id="scope-controls" hidden>
+          <div class="scope-field">
+            <label for="question-scope">출제 범위</label>
+            <select id="question-scope" aria-describedby="scope-status" disabled></select>
+          </div>
+          <p class="scope-status" id="scope-status" role="status"></p>
         </div>
         <div class="question-body">
           <div class="question-meta">

@@ -28,6 +28,8 @@ const standardAnswerSeconds = 30;
 const defaultEssaySeconds = 120;
 const maxEssaySeconds = 900;
 const essayLimit = 2_000;
+const warmupCategory = '기초학습';
+const defaultQuestionScope = { kind: 'all' };
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -101,6 +103,13 @@ function requiredQuestion(state, id) {
   return question;
 }
 
+function matchesQuestionScope(question, scope) {
+  if (scope.kind === 'all') return true;
+  if (scope.kind === 'warmup') return question.category === warmupCategory;
+  if (question.category === warmupCategory || (question.chapter || question.category) !== scope.chapter) return false;
+  return scope.kind === 'chapter' || question.topic === scope.topic;
+}
+
 function summarizeResponses(question, responses) {
   const optionCounts = question?.type === 'multiple'
     ? question.options.map((label) => ({ label, count: 0 }))
@@ -142,6 +151,11 @@ function readHistoryEntry(state, entry) {
 
 export function readTeacherState(state, joinUrl, now = Date.now()) {
   const question = findQuestion(state, state.activeQuestionId);
+  const scope = state.scope ?? defaultQuestionScope;
+  const scopeQuestionIds = state.questions.filter((saved) => matchesQuestionScope(saved, scope)).map(({ id }) => id);
+  // Rooms saved before scope selection used the last opened question as their sequence position.
+  const lastQuestionId = Object.hasOwn(state, 'scopeLastQuestionId') ? state.scopeLastQuestionId : state.activeQuestionId;
+  const nextQuestionId = scopeQuestionIds[scopeQuestionIds.indexOf(lastQuestionId) + 1] ?? null;
   return {
     roomCode: state.roomCode,
     stage: state.stage,
@@ -149,6 +163,9 @@ export function readTeacherState(state, joinUrl, now = Date.now()) {
     closesAt: state.stage === 'open' ? state.closesAt ?? null : null,
     serverNow: now,
     questions: state.questions,
+    scope,
+    scopeQuestionIds,
+    nextQuestionId,
     participants: state.participants.map(publicParticipant),
     summary: summarizeQuestion(state, question),
     history: (state.history || []).map((entry) => readHistoryEntry(state, entry)),
@@ -211,6 +228,25 @@ function questionLabel(value, label, limit) {
 
 function questionSource({ chapter, topic }) {
   return { chapter: questionLabel(chapter, '교재 챕터', 60), topic: questionLabel(topic, '교재 목차', 120) };
+}
+
+function validateQuestionScope({ kind, chapter, topic }) {
+  if (kind === 'all' || kind === 'warmup') return { kind };
+  if (kind !== 'chapter' && kind !== 'topic') throw new ApiError(400, '출제 범위를 선택해 주세요.');
+  const chapterName = cleanText(chapter, 60, '출제할 챕터를 선택해 주세요.');
+  if (kind === 'chapter') return { kind, chapter: chapterName };
+  return { kind, chapter: chapterName, topic: cleanText(topic, 120, '출제할 목차를 선택해 주세요.') };
+}
+
+function selectQuestionScope(state, body) {
+  const scope = validateQuestionScope(body);
+  const current = state.scope ?? defaultQuestionScope;
+  if (current.kind === scope.kind && current.chapter === scope.chapter && current.topic === scope.topic) return accepted(state);
+  if (state.stage === 'open') throw new ApiError(409, '답안 접수를 마감한 뒤 출제 범위를 바꿔 주세요.');
+  if ((scope.kind === 'chapter' || scope.kind === 'topic') && !state.questions.some((question) => matchesQuestionScope(question, scope))) {
+    throw new ApiError(400, '선택한 범위에 출제할 문항이 없습니다.');
+  }
+  return accepted({ ...state, scope, scopeLastQuestionId: null });
 }
 
 function validateQuestion(body) {
@@ -339,6 +375,7 @@ function replaceQuestions(state, body, { now, randomUUID }) {
     ...archived,
     stage: 'waiting',
     activeQuestionId: null,
+    scopeLastQuestionId: null,
     closesAt: null,
     questions,
     archivedQuestions: [...(state.archivedQuestions || []), ...state.questions.filter(({ id }) => !activeIds.has(id))],
@@ -490,9 +527,14 @@ export function applyQuizMutation(state, action, body, context) {
       return replaceQuestions(state, body, { now, randomUUID: context.randomUUID });
     case 'essay-grade':
       return gradeEssay(state, body);
+    case 'scope':
+      return selectQuestionScope(state, body);
     case 'open': {
       const question = requiredQuestion(state, body.id);
       if (state.activeQuestionId === body.id && state.stage === 'open') return accepted(state);
+      if (!matchesQuestionScope(question, state.scope ?? defaultQuestionScope)) {
+        throw new ApiError(409, '선택한 출제 범위에 속하지 않는 문항입니다.');
+      }
       if (state.activeQuestionId !== body.id) requireClosedCollection(state);
       const isEssay = question.type === 'essay';
       const durationSeconds = isEssay
@@ -501,7 +543,14 @@ export function applyQuizMutation(state, action, body, context) {
       const questions = isEssay && durationSeconds !== question.durationSeconds
         ? state.questions.map((saved) => saved.id === question.id ? { ...saved, durationSeconds } : saved)
         : state.questions;
-      return accepted({ ...state, questions, activeQuestionId: body.id, stage: 'open', closesAt: now + durationSeconds * 1000 });
+      return accepted({
+        ...state,
+        questions,
+        activeQuestionId: body.id,
+        scopeLastQuestionId: body.id,
+        stage: 'open',
+        closesAt: now + durationSeconds * 1000,
+      });
     }
     case 'close':
       return accepted(closeQuestion(state, now));

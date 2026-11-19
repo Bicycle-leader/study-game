@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 const kindLabels = { multiple: '객관식', short: '단답형', essay: '서술형' };
 const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '접수 마감' };
 const defaultEssaySeconds = 120;
+const warmupCategory = '기초학습';
 const optionMarkers = ['A', 'B', 'C', 'D'];
 const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, pendingCount: 0, optionCounts: [] };
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
@@ -92,8 +93,15 @@ function formatDate(value) {
   return value && !Number.isNaN(date.valueOf()) ? dateFormatter.format(date) : '';
 }
 
+function scopedQuestions() {
+  const questions = state?.questions || [];
+  if (!Array.isArray(state?.scopeQuestionIds)) return questions;
+  const ids = new Set(state.scopeQuestionIds);
+  return questions.filter(({ id }) => ids.has(id));
+}
+
 function selectedQuestion() {
-  return state?.questions.find((item) => item.id === selectedId);
+  return scopedQuestions().find((item) => item.id === selectedId);
 }
 
 function releasedQuestion() {
@@ -103,6 +111,9 @@ function releasedQuestion() {
 
 function nextQuestion() {
   if (!state) return null;
+  if (Object.hasOwn(state, 'nextQuestionId')) {
+    return state.questions.find(({ id }) => id === state.nextQuestionId) || null;
+  }
   const index = state.questions.findIndex((item) => item.id === state.activeQuestionId);
   return state.questions[index + 1];
 }
@@ -144,6 +155,7 @@ function syncControls() {
     'edit-question': { disabled: busy || !question || Boolean(isUsed), hidden: !managing },
     'open-question': { disabled: busy || !question || isOpen, hidden: !managing || isOpen },
     'next-question': { disabled: busy || !nextQuestion() || isOpen, hidden: managing || isOpen },
+    'question-scope': { disabled: busy || isOpen || !state?.scope },
     'close-question': { disabled: busy || !isOpen, hidden: !isOpen },
     'wait-question': { disabled: busy || isWaiting, hidden: isWaiting || isOpen },
     'grade-essay': { disabled: busy || !isClosedEssay || !state.summary?.total, hidden: presenting || !isClosedEssay },
@@ -170,17 +182,88 @@ function syncControls() {
   if (edit) edit.title = isUsed ? '응답이 제출된 문항은 수정할 수 없습니다.' : '문항 수정';
 }
 
+function scopeValue({ kind, chapter, topic }) {
+  return JSON.stringify({ kind, chapter, topic });
+}
+
+function scopeOption(scope, name, count) {
+  const option = el('option', '', `${name} · ${count}문항`);
+  option.value = scopeValue(scope);
+  return option;
+}
+
+function renderScope() {
+  const visible = !joining && !presenting && Boolean(state?.scope);
+  $('scope-controls').hidden = !visible;
+  if (!visible) {
+    renderList('question-scope', null, () => []);
+    setText('scope-status', '');
+    return;
+  }
+
+  const select = $('question-scope');
+  const { scope, questions } = state;
+  const sources = questions.map(({ category, chapter, topic }) => [category, chapter, topic]);
+  renderList('question-scope', sources, () => {
+    const chapters = new Map();
+    let warmupTotal = 0;
+    for (const [category, sourceChapter, topic] of sources) {
+      if (category === warmupCategory) {
+        warmupTotal += 1;
+        continue;
+      }
+      const chapter = sourceChapter || category;
+      if (!chapter) continue;
+      if (!chapters.has(chapter)) chapters.set(chapter, { count: 0, topics: new Map() });
+      const entry = chapters.get(chapter);
+      entry.count += 1;
+      if (topic) entry.topics.set(topic, (entry.topics.get(topic) || 0) + 1);
+    }
+
+    const options = [scopeOption({ kind: 'all' }, '전체 문제', questions.length)];
+    if (warmupTotal) options.push(scopeOption({ kind: 'warmup' }, warmupCategory, warmupTotal));
+    if (!chapters.size) return options;
+
+    const chapterOptions = el('optgroup');
+    chapterOptions.label = '챕터';
+    for (const [chapter, { count }] of chapters) {
+      chapterOptions.append(scopeOption({ kind: 'chapter', chapter }, chapter, count));
+    }
+    options.push(chapterOptions);
+    for (const [chapter, { topics }] of chapters) {
+      if (!topics.size) continue;
+      const topicOptions = el('optgroup');
+      topicOptions.label = `목차 · ${chapter}`;
+      for (const [topic, count] of [...topics].sort(([a], [b]) => a.localeCompare(b, 'ko', { numeric: true }))) {
+        topicOptions.append(scopeOption({ kind: 'topic', chapter, topic }, topic, count));
+      }
+      options.push(topicOptions);
+    }
+    return options;
+  });
+
+  const value = scopeValue(scope);
+  if (select.value !== value) select.value = value;
+  const count = scopedQuestions().length;
+  let status = `선택한 범위의 ${count}문항을 순서대로 출제합니다.`;
+  if (!count) status = '선택한 범위에 출제할 문항이 없습니다.';
+  else if (state.stage === 'open') status = '접수 마감 후 출제 범위를 바꿀 수 있습니다.';
+  else if (!nextQuestion()) status = '선택한 범위의 마지막 문항까지 출제했습니다.';
+  setText('scope-status', status);
+}
+
 function renderQuestionList() {
-  const { activeQuestionId, questions, stage } = state;
+  const { activeQuestionId, stage } = state;
+  const questions = scopedQuestions();
   const signature = managing ? [questions, selectedId, activeQuestionId, stage] : null;
   renderList('question-list', signature, () => {
     if (!managing) return [];
-    if (!questions.length) return [empty('등록된 문항이 없습니다', '문항 추가 버튼으로 첫 문제를 만들어 보세요.')];
+    if (!questions.length) return [empty('표시할 문항이 없습니다', '출제 범위를 바꾸거나 새 문제를 만들어 보세요.')];
 
     const categorized = questions.some((question) => question.category);
     const groups = new Map();
     const items = [];
-    for (const [index, question] of questions.entries()) {
+    for (const question of questions) {
       const button = el('button', 'question-item');
       button.type = 'button';
       button.dataset.questionId = question.id;
@@ -195,7 +278,8 @@ function renderQuestionList() {
       const source = [chapter, question.topic].filter(Boolean).join(' · ');
       if (source) content.append(el('span', 'question-item-source', source));
       content.append(el('strong', 'question-item-title', question.title));
-      button.append(el('span', 'question-item-number', String(index + 1).padStart(2, '0')), content);
+      const number = state.questions.indexOf(question) + 1;
+      button.append(el('span', 'question-item-number', String(number).padStart(2, '0')), content);
       if (isLive) button.append(el('span', 'question-item-live', '진행 중'));
       if (!categorized) {
         items.push(button);
@@ -285,7 +369,7 @@ function renderResponseSummary() {
   const isEssay = question?.type === 'essay';
   setText('response-count', `${summary.total}건`);
   setText('response-question-title', managing && question && selectedId !== question.id ? question.title : '');
-  setText('metric-submissions', summary.total);
+  setText('metric-submissions', `${summary.total}명`);
   setText('metric-correct', hideResults ? '' : summary.correctCount);
   setText('metric-rate-label', isEssay ? '채점한 답안의 정답률' : '정답률');
   setText('metric-rate', hideResults ? '' : accuracy(summary, isEssay));
@@ -358,10 +442,13 @@ function renderParticipants() {
 }
 
 function render() {
-  if (!state?.questions.some((item) => item.id === selectedId)) {
-    selectedId = state?.activeQuestionId || state?.questions[0]?.id || null;
+  const scoped = scopedQuestions();
+  if (!scoped.some((item) => item.id === selectedId)) {
+    const active = scoped.find((item) => item.id === state.activeQuestionId);
+    selectedId = active?.id || nextQuestion()?.id || scoped[0]?.id || null;
   }
   if (joining) renderJoinQr();
+  renderScope();
   if (!state) {
     for (const id of ['question-list', 'history-list', 'participant-list']) renderList(id, null, () => []);
     renderQuestion();
@@ -372,8 +459,8 @@ function render() {
   if (essaySession && !hasClosedEssay(essaySession.questionId)) closeEssayDialog();
   document.body.dataset.stage = state.stage;
   setText('room-code', state.roomCode);
-  setText('metric-participants', state.participants.length);
-  setText('metric-total-questions', `전체 ${state.questions.length}문항`);
+  setText('metric-participants', `${state.participants.length}명`);
+  setText('metric-total-questions', `${state.scope && state.scope.kind !== 'all' ? '범위' : '전체'} ${scoped.length}문항`);
   const joinLink = $('join-link');
   if (joinLink?.tagName === 'A') joinLink.href = `/join?code=${encodeURIComponent(state.roomCode)}`;
   if (joinLink) joinLink.title = state.joinUrl;
@@ -752,11 +839,13 @@ async function copy(value, label) {
 }
 
 function renderJoinQr() {
-  const { joinUrl, roomCode, participants } = state || {};
+  const { joinUrl, roomCode, participants, summary } = state || {};
+  const submittedStudents = releasedQuestion() ? summary?.total ?? 0 : 0;
   $('join-details').hidden = !roomCode;
   $('qr-loading').hidden = Boolean(joinUrl);
   setText('qr-room-code', roomCode || '');
   setText('qr-participants', `${participants?.length || 0}명`);
+  setText('qr-submissions', `${submittedStudents}명`);
 
   const link = $('qr-student-link');
   link.hidden = !joinUrl;
@@ -881,6 +970,21 @@ listen('question-list', 'click', (event) => {
     selectedId = item.dataset.questionId;
     render();
   }
+});
+
+listen('question-scope', 'change', (event) => {
+  const value = event.currentTarget.value;
+  if (!value || joining || presenting || busy || !state?.scope || state.stage === 'open') return;
+  mutate('scope', JSON.parse(value), {
+    after: () => {
+      selectedId = null;
+      closeEssayTimeDialog();
+    },
+    onError: (message) => {
+      renderScope();
+      showToast(message, true);
+    },
+  });
 });
 
 listen('toggle-question-management', 'click', () => {

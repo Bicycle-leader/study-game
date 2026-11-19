@@ -138,6 +138,12 @@ a { color: inherit; }
 .question-body { padding: 16px 18px 17px; }
 .question-controls, .question-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .question-controls { justify-content: flex-end; }
+.scope-controls { display: grid; gap: 6px; padding: 11px 17px; border-bottom: 1px solid #ecf0e9; background: #f8faf6; }
+.scope-field { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 10px; }
+.scope-field label { color: var(--pine); font-size: 12px; font-weight: 800; }
+.scope-field select { min-width: 0; width: 100%; min-height: 36px; padding: 6px 9px; border: 1px solid #cbd8cc; border-radius: 7px; background: #fff; color: #294638; font-size: 13px; text-overflow: ellipsis; }
+.scope-field select:disabled { opacity: .7; }
+.scope-status { color: var(--muted); font-size: 11px; }
 .question-sequence { color: var(--pine); font-size: 12px; font-weight: 800; }
 .question-sequence:empty, .question-source span:empty { display: none; }
 .question-source { display: flex; flex-wrap: wrap; column-gap: 10px; row-gap: 3px; margin-top: 10px; color: #43614f; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
