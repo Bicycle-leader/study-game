@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "public",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://jijeok-class-quiz.hopesound.chatgpt.site/api/:path*"
+    },
+    {
+      "source": "/join",
+      "destination": "/student.html"
+    }
+  ]
+}

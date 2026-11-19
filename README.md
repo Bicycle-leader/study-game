@@ -8,6 +8,8 @@
 
 온라인 버전은 `node scripts/build-site.mjs`로 빌드합니다. Sites에 `TEACHER_EMAIL`, `TEACHER_KEY`, `TEACHER_SESSION_SECRET`을 서버 전용 환경 변수로 설정하고 `.openai/hosting.json` 및 `drizzle/`을 함께 배포합니다. `TEACHER_SESSION_SECRET`은 세션 서명에 쓰는 별도의 무작위 값입니다.
 
+Vercel에서는 `vercel.json`이 `public/`을 배포하고 `/api/` 요청을 기존 Sites 수업 서버에 연결합니다. 두 주소에서 동일한 강사 접속 키와 수업 기록을 사용합니다.
+
 ## 로컬 실행하기
 
 1. Windows에서 [start-class.cmd](./start-class.cmd)를 실행합니다. 터미널에서는 `node server.js`로 실행할 수 있습니다. Node.js 18 이상이 필요하며 별도 패키지 설치는 없습니다.

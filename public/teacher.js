@@ -660,6 +660,8 @@ async function start() {
   if (hosted) {
     $('hosted-login').hidden = false;
     setText('login-key-help', '강사 접속 키를 받은 경우 입력하세요.');
+  } else if (window.location.protocol === 'https:') {
+    setText('login-key-help', '온라인 수업에 설정한 강사 접속 키를 입력하세요.');
   }
   activateTab('overview');
   setConnection('connecting');
