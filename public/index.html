@@ -9,6 +9,7 @@
   <link rel="icon" type="image/png" href="/assets/icon.png">
   <link rel="stylesheet" href="/teacher.css">
   <script src="/vendor/qrcode-generator.js" defer></script>
+  <script src="/history-export.js" defer></script>
   <script src="/teacher.js" defer></script>
 </head>
 <body>
@@ -118,7 +119,13 @@
     </div>
 
     <section class="panel secondary-panel" id="history-panel" role="tabpanel" aria-labelledby="history-tab" data-panel="history" hidden>
-      <div class="panel-heading"><h2 id="history-heading">응답 기록</h2><button class="button button-secondary" id="reset-class" type="button" disabled>새 수업 시작</button></div>
+      <div class="panel-heading history-heading">
+        <h2 id="history-heading">응답 기록</h2>
+        <div class="history-actions">
+          <button class="button button-primary" id="download-history" type="button" disabled>엑셀 다운로드</button>
+          <button class="button button-secondary" id="reset-class" type="button" disabled>새 수업 시작</button>
+        </div>
+      </div>
       <div id="history-list" class="secondary-list"></div>
     </section>
     <section class="panel secondary-panel" id="participants-panel" role="tabpanel" aria-labelledby="participants-tab" data-panel="participants" hidden>

@@ -106,6 +106,7 @@ function syncControls() {
     'copy-code': { disabled: !state },
     'copy-link': { disabled: !state },
     'show-qr': { disabled: !state?.joinUrl },
+    'download-history': { disabled: busy || !state?.history?.length, hidden: presenting },
     'reset-class': { disabled: busy || !state, hidden: presenting },
   };
   for (const [id, properties] of Object.entries(controls)) {
@@ -574,6 +575,26 @@ listen('close-question', 'click', () => {
   });
 });
 listen('wait-question', 'click', () => mutate('wait', {}, { message: '학생 화면을 대기 상태로 전환했습니다.' }));
+listen('download-history', 'click', () => {
+  if (presenting || busy || !state?.history?.length) return;
+  try {
+    const workbook = window.createHistoryWorkbook(state.history);
+    const url = URL.createObjectURL(workbook);
+    const link = el('a');
+    link.href = url;
+    link.download = '지적클래스-응답집계.xlsx';
+    link.hidden = true;
+    document.body.append(link);
+    try {
+      link.click();
+    } finally {
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+  } catch {
+    showToast('엑셀 파일을 만들 수 없습니다. 다시 시도해 주세요.', true);
+  }
+});
 listen('reset-class', 'click', () => {
   if (!window.confirm('새 수업을 시작할까요? 문제 목록은 보존되며 참여 학생, 제출 답안 및 응답 기록이 삭제됩니다.')) return;
   mutate('reset', {}, {
