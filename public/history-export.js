@@ -43,6 +43,9 @@
     for (const entry of history) {
       if (seenQuestions.has(entry.questionId)) continue;
       seenQuestions.add(entry.questionId);
+      if (entry.type === 'essay' && entry.pendingCount > 0) {
+        throw new Error('서술형 채점을 완료한 뒤에 응답 기록을 내려받을 수 있습니다.');
+      }
       const total = count(entry.total);
       const correct = count(entry.correctCount);
       totals.push([entry.title, total, correct, count(entry.incorrectCount), total ? correct / total : 0]);

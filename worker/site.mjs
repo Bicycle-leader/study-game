@@ -1,10 +1,10 @@
 import assets from './assets.mjs';
-import { ApiError, applyQuizMutation, createQuizState, readStudentState, readTeacherState, settleQuizTimer } from './quiz-engine.mjs';
+import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readStudentState, readTeacherState, settleQuizTimer } from './quiz-engine.mjs';
 
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
 const jsonLimit = 16 * 1024;
-const allowedTeacherActions = new Set(['questions', 'open', 'close', 'wait', 'reset']);
+const allowedTeacherActions = new Set(['questions', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
 
 function randomHex(bytes) {
   return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -136,6 +136,10 @@ function mutateQuiz(db, action, body, participantToken) {
 
 async function handleApi(request, env, url) {
   const participantToken = request.headers.get('X-Participant-Token');
+  if (request.method === 'GET' && url.pathname === '/api/teacher/essay') {
+    await requireTeacher(request, env);
+    return runQuizOperation(env.DB, ({ state }) => json(readEssayReview(state, url.searchParams.get('questionId'))));
+  }
   if (request.method === 'GET' && url.pathname === '/api/state') {
     const isTeacher = request.headers.has('Authorization');
     if (isTeacher) await requireTeacher(request, env);

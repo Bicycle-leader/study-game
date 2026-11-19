@@ -1,7 +1,7 @@
 const ui = Object.fromEntries([
   'page-title', 'panel-label', 'room-label', 'intro', 'join-form', 'room-code', 'nickname',
   'join-button', 'notice', 'notice-icon', 'notice-text', 'retry-button', 'answer-form',
-  'choices', 'short-field', 'short-answer', 'answer-button', 'answer-result', 'result-badge',
+  'choices', 'short-field', 'short-answer', 'essay-field', 'essay-answer', 'answer-button', 'answer-result', 'result-badge',
   'result-details', 'form-error', 'live-update', 'student-name', 'question-timer', 'timer-status', 'countdown'
 ].map(id => [id, document.getElementById(id)]));
 
@@ -98,13 +98,17 @@ function resultRow(label, value) {
 }
 
 function showResult(question, response, closed) {
+  const essay = question.type === 'essay';
   let message = '제출 완료';
   let tone = '';
-  if (closed) {
-    if (!response) {
-      message = '미제출';
-      tone = 'neutral';
-    } else if (response.correct) {
+  if (closed && !response) {
+    message = '미제출';
+    tone = 'neutral';
+  } else if (essay && response && typeof response.correct !== 'boolean') {
+    message = '채점 대기';
+    tone = 'pending';
+  } else if (closed) {
+    if (response.correct) {
       message = '✓ 정답입니다';
     } else {
       message = '× 오답입니다';
@@ -114,9 +118,11 @@ function showResult(question, response, closed) {
 
   ui['result-badge'].className = `result-badge ${tone}`;
   ui['result-badge'].textContent = message;
-  ui['result-details'].replaceChildren(resultRow('내 답안', answerText(question, response?.value)));
+  const ownAnswer = resultRow('내 답안', answerText(question, response?.value));
+  ownAnswer.classList.toggle('essay-response', essay);
+  ui['result-details'].replaceChildren(ownAnswer);
 
-  if (closed) {
+  if (closed && !essay) {
     const correct = question.type === 'multiple'
       ? answerText(question, question.correctIndex)
       : question.acceptedAnswers?.join(' 또는 ') ?? '—';
@@ -131,6 +137,7 @@ function buildOptions(question, closesAt) {
   if (shownQuestion === key) return;
   shownQuestion = key;
   ui['short-answer'].value = '';
+  ui['essay-answer'].value = '';
 
   const choices = options.map((option, index) => {
     const label = document.createElement('label');
@@ -184,6 +191,7 @@ function refreshCountdown() {
   ui['answer-button'].disabled = sendingAnswer || needsFreshState || closed;
   ui.choices.disabled = closed;
   ui['short-answer'].disabled = closed;
+  ui['essay-answer'].disabled = closed;
 
   if (!timer.hidden) {
     const seconds = closed ? 0 : Math.ceil(remaining / 1000);
@@ -242,18 +250,24 @@ function render() {
     announce('waiting', ui['page-title'].textContent);
   } else {
     const multiple = question.type === 'multiple';
-    ui['panel-label'].textContent = multiple ? '객관식 문제' : '단답형 문제';
+    const essay = question.type === 'essay';
+    ui['panel-label'].textContent = multiple ? '객관식 문제' : essay ? '서술형 문제' : '단답형 문제';
     ui['page-title'].textContent = question.title;
     ui.choices.hidden = !multiple;
-    ui['short-field'].hidden = multiple;
+    ui['short-field'].hidden = multiple || essay;
+    ui['essay-field'].hidden = !essay;
 
     if (takingAnswers) {
       buildOptions(question, state.closesAt);
-      ui.intro.textContent = multiple ? '보기 중 정답 하나를 선택해 주세요.' : '답안을 짧게 입력해 주세요.';
+      ui.intro.textContent = multiple ? '보기 중 정답 하나를 선택해 주세요.' : essay ? '질문에 대한 답안을 작성해 주세요.' : '답안을 짧게 입력해 주세요.';
       if (!expired) announce(`open-${question.id}-${state.closesAt}`, `문제가 열렸습니다. ${question.title}`);
     } else {
       const result = showResult(question, response, closed);
-      ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '강사가 문제를 마감하면 채점 결과가 표시됩니다.';
+      if (essay && response && typeof response.correct !== 'boolean') {
+        ui.intro.textContent = '강사가 채점하면 결과가 표시됩니다.';
+      } else {
+        ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '강사가 문제를 마감하면 채점 결과가 표시됩니다.';
+      }
       if (!expired) announce(`${closed}-${question.id}-${result}`, result);
     }
   }
@@ -347,13 +361,26 @@ ui['answer-form'].addEventListener('submit', async event => {
   }
   setError();
   const { question, closesAt } = state;
-  const selected = ui.choices.querySelector('input:checked');
-  const value = question.type === 'multiple' ? Number(selected?.value) : ui['short-answer'].value.trim();
-  if (question.type === 'multiple' ? !selected : !value) {
-    setError(question.type === 'multiple' ? '제출할 보기를 선택해 주세요.' : '답안을 입력해 주세요.');
-    if (question.type === 'short') ui['short-answer'].focus();
-    else ui.choices.querySelector('input')?.focus();
-    return;
+  let value;
+
+  if (question.type === 'multiple') {
+    const selected = ui.choices.querySelector('input:checked');
+    if (!selected) {
+      setError('제출할 보기를 선택해 주세요.');
+      ui.choices.querySelector('input')?.focus();
+      return;
+    }
+    value = Number(selected.value);
+  } else {
+    const essay = question.type === 'essay';
+    const field = ui[essay ? 'essay-answer' : 'short-answer'];
+    const trimmed = field.value.trim();
+    if (!trimmed) {
+      setError('답안을 입력해 주세요.');
+      field.focus();
+      return;
+    }
+    value = essay ? field.value : trimmed;
   }
 
   sendingAnswer = true;

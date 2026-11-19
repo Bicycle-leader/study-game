@@ -28,7 +28,9 @@ const mimeTypes = {
 };
 
 async function main() {
-  const { ApiError, createQuizState, readTeacherState, readStudentState, applyQuizMutation, settleQuizTimer } = await import('./quiz-engine.mjs');
+  const {
+    ApiError, createQuizState, readTeacherState, readStudentState, readEssayReview, applyQuizMutation, settleQuizTimer,
+  } = await import('./quiz-engine.mjs');
   const quizContext = {
     randomHex: (length) => crypto.randomBytes(length).toString('hex'),
     randomUUID: crypto.randomUUID,
@@ -137,6 +139,11 @@ async function main() {
   async function handleApi(request, response, url) {
     const participantToken = request.headers['x-participant-token'];
     const route = `${request.method} ${url.pathname}`;
+    if (route === 'GET /api/teacher/essay') {
+      requireTeacher(request);
+      updateState(settleQuizTimer(state));
+      return sendJson(response, 200, readEssayReview(state, url.searchParams.get('questionId')));
+    }
     if (route === 'GET /api/state') {
       const isTeacher = Boolean(request.headers.authorization);
       if (isTeacher) requireTeacher(request);

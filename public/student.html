@@ -65,6 +65,13 @@
             <label for="short-answer">내 답안</label>
             <input id="short-answer" name="answer" type="text" maxlength="160" autocomplete="off" placeholder="답안을 입력하세요">
           </div>
+          <div class="field" id="essay-field" hidden>
+            <div class="field-heading">
+              <label for="essay-answer">내 답안</label>
+              <span id="essay-limit">최대 2,000자</span>
+            </div>
+            <textarea id="essay-answer" name="essay" rows="5" maxlength="2000" aria-describedby="essay-limit" placeholder="답안을 입력하세요"></textarea>
+          </div>
           <button type="submit" class="primary-button" id="answer-button">제출하기 <span aria-hidden="true">→</span></button>
         </form>
 

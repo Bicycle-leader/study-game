@@ -27,7 +27,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button, input { font: inherit; }
+button, input, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; }
 
@@ -233,7 +233,9 @@ h1:focus { outline: none; }
 .join-form, .answer-form { display: grid; gap: 16px; }
 .field { display: grid; gap: 7px; }
 .field label { font-size: 14px; font-weight: 760; }
-.field input {
+.field-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.field-heading span { color: var(--muted); font-size: 12px; }
+.field input, .field textarea {
   width: 100%;
   min-width: 0;
   min-height: 50px;
@@ -244,8 +246,9 @@ h1:focus { outline: none; }
   color: var(--ink);
 }
 
-.field input::placeholder { color: #647368; opacity: 1; }
-.field input:focus { border-color: #598471; }
+.field textarea { min-height: 120px; resize: vertical; }
+.field input::placeholder, .field textarea::placeholder { color: #647368; opacity: 1; }
+.field input:focus, .field textarea:focus { border-color: #598471; }
 .code-input { text-transform: uppercase; letter-spacing: .07em; }
 .code-input::placeholder { text-transform: none; letter-spacing: normal; }
 
@@ -337,11 +340,14 @@ h1:focus { outline: none; }
 .result-badge { margin: 0; padding: 7px 12px; border-radius: 8px; color: var(--pine); background: var(--sage); }
 .result-badge.incorrect { color: var(--clay); background: var(--clay-light); }
 .result-badge.neutral { color: var(--muted); background: var(--paper); }
+.result-badge.pending { color: #6c5125; background: #f6eddc; }
 .result-details { margin: 0; padding: 0 13px; display: grid; border: 1px solid var(--line); border-radius: 9px; }
 .result-details div { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: baseline; padding: 11px 0; }
 .result-details div + div { border-top: 1px solid var(--line); }
 .result-details dt { color: var(--muted); font-size: 13px; }
 .result-details dd { margin: 0; font-size: 15px; font-weight: 650; overflow-wrap: anywhere; }
+.result-details .essay-response { grid-template-columns: 1fr; gap: 4px; }
+.essay-response dd { white-space: pre-wrap; }
 
 .form-error { margin: 13px 0 0; color: var(--clay); font-size: 14px; }
 .site-footer { min-height: 55px; color: var(--muted); border-top: 1px solid var(--line); font-size: 12px; }

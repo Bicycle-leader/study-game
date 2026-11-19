@@ -25,6 +25,7 @@ const seedQuestions = [
   },
 ];
 const answerDurationMs = 30_000;
+const essayLimit = 2_000;
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -70,7 +71,9 @@ function normalizeAnswer(answer) {
   return answer.normalize('NFKC').replace(/\s+/gu, '').toLowerCase();
 }
 
-function gradeQuestion(question, value) {
+function gradeResponse(question, response) {
+  const { value } = response;
+  if (question.type === 'essay') return response.correct;
   if (question.type === 'multiple') return value === question.correctIndex;
   return question.acceptedAnswers.some((answer) => normalizeAnswer(answer) === normalizeAnswer(value));
 }
@@ -79,7 +82,10 @@ function publicResponse(response, question, showResult) {
   if (!response) return null;
   const { participantId, nickname, value, submittedAt } = response;
   const details = { participantId, nickname, value, submittedAt };
-  if (showResult) details.correct = gradeQuestion(question, value);
+  if (showResult) {
+    const correct = gradeResponse(question, response);
+    if (typeof correct === 'boolean') details.correct = correct;
+  }
   return details;
 }
 
@@ -98,11 +104,17 @@ function summarizeResponses(question, responses) {
     ? question.options.map((label) => ({ label, count: 0 }))
     : [];
   let correctCount = 0;
-  for (const { value } of responses) {
-    if (gradeQuestion(question, value)) correctCount += 1;
+  let incorrectCount = 0;
+  for (const response of responses) {
+    const grade = gradeResponse(question, response);
+    if (grade === true) correctCount += 1;
+    if (grade === false) incorrectCount += 1;
+    const { value } = response;
     if (Number.isInteger(value) && optionCounts[value]) optionCounts[value].count += 1;
   }
-  return { total: responses.length, correctCount, incorrectCount: responses.length - correctCount, optionCounts };
+  const summary = { total: responses.length, correctCount, incorrectCount, optionCounts };
+  if (question?.type === 'essay') summary.pendingCount = summary.total - correctCount - incorrectCount;
+  return summary;
 }
 
 function summarizeQuestion(state, question) {
@@ -112,7 +124,8 @@ function summarizeQuestion(state, question) {
 
 function readHistoryEntry(state, entry) {
   if (Array.isArray(entry.optionCounts)) return entry;
-  const question = findQuestion(state, entry.questionId);
+  const question = findQuestion(state, entry.questionId)
+    || state.archivedQuestions?.find((item) => item.id === entry.questionId);
   if (entry.type !== 'multiple' || question?.type !== 'multiple' || !Number.isInteger(entry.total) || entry.total < 1) {
     return { ...entry, optionCounts: [] };
   }
@@ -155,7 +168,7 @@ export function readStudentState(state, code, participantToken, now = Date.now()
   let visibleQuestion = null;
   if (question) {
     const { id, type, title, options } = question;
-    visibleQuestion = showResult && participant ? question : { id, type, title, options };
+    visibleQuestion = showResult && participant && type !== 'essay' ? question : { id, type, title, options };
   }
   return {
     roomCode: state.roomCode,
@@ -174,13 +187,10 @@ function cleanText(value, maxLength, message) {
   return result;
 }
 
-function saveQuestion(state, body, randomUUID) {
-  const existing = body.id ? requiredQuestion(state, body.id) : null;
-  if (existing && state.responses.some((response) => response.questionId === existing.id)) {
-    throw new ApiError(409, '답안을 받은 문제는 수정할 수 없습니다. 새 문제를 만들어 주세요.');
-  }
+function validateQuestion(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, '문제의 형식을 확인해 주세요.');
   const title = cleanText(body.title, 250, '문제를 1~250자로 입력해 주세요.');
-  const question = { id: existing?.id || randomUUID(), type: body.type, title, options: [], correctIndex: null, acceptedAnswers: [] };
+  const question = { type: body.type, title, options: [], correctIndex: null, acceptedAnswers: [] };
   if (body.type === 'multiple') {
     if (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 6) {
       throw new ApiError(400, '객관식 보기를 2~6개 입력해 주세요.');
@@ -199,9 +209,24 @@ function saveQuestion(state, body, randomUUID) {
       throw new ApiError(400, '인정할 단답형 정답을 1~10개 입력해 주세요.');
     }
     question.acceptedAnswers = body.acceptedAnswers.map((answer) => cleanText(answer, 160, '각 정답을 1~160자로 입력해 주세요.'));
+  } else if (body.type === 'essay') {
+    const guide = body.gradingGuide ?? '';
+    if (typeof guide !== 'string' || [...guide.trim()].length > essayLimit) {
+      throw new ApiError(400, '채점 기준은 2,000자까지 입력할 수 있습니다.');
+    }
+    question.gradingGuide = guide.trim();
   } else {
-    throw new ApiError(400, '객관식 또는 단답형을 선택해 주세요.');
+    throw new ApiError(400, '객관식, 단답형 또는 서술형을 선택해 주세요.');
   }
+  return question;
+}
+
+function saveQuestion(state, body, randomUUID) {
+  const existing = body.id ? requiredQuestion(state, body.id) : null;
+  if (existing && state.responses.some((response) => response.questionId === existing.id)) {
+    throw new ApiError(409, '답안을 받은 문제는 수정할 수 없습니다. 새 문제를 만들어 주세요.');
+  }
+  const question = { id: existing?.id || randomUUID(), ...validateQuestion(body) };
   const questions = existing
     ? state.questions.map((saved) => saved.id === question.id ? question : saved)
     : [...state.questions, question];
@@ -220,6 +245,67 @@ function closeQuestion(state, closedAt) {
     ...summarizeQuestion(state, question),
   };
   return { ...state, stage: 'closed', closesAt: null, history: [entry, ...(state.history || [])] };
+}
+
+function bankDefinitions(questions) {
+  return JSON.stringify(questions.map(({ type, title, options, correctIndex, acceptedAnswers, gradingGuide }) =>
+    [type, title, options, correctIndex, acceptedAnswers, gradingGuide || '']));
+}
+
+function replaceQuestions(state, body, { now, randomUUID }) {
+  if (!Array.isArray(body.questions) || body.questions.length === 0) {
+    throw new ApiError(400, '교체할 문제를 한 개 이상 입력해 주세요.');
+  }
+  const definitions = body.questions.map(validateQuestion);
+  if (bankDefinitions(definitions) === bankDefinitions(state.questions)) return accepted(state);
+
+  const archived = state.stage === 'open' ? closeQuestion(state, now) : state;
+  return accepted({
+    ...archived,
+    stage: 'waiting',
+    activeQuestionId: null,
+    closesAt: null,
+    questions: definitions.map((question) => ({ id: randomUUID(), ...question })),
+    archivedQuestions: [...(state.archivedQuestions || []), ...state.questions],
+  });
+}
+
+function completedEssay(state, questionId) {
+  const question = findQuestion(state, questionId)
+    || state.archivedQuestions?.find((item) => item.id === questionId);
+  if (question?.type !== 'essay') throw new ApiError(404, '서술형 문제를 찾을 수 없습니다.');
+  const completion = state.history?.find((entry) => entry.questionId === question.id);
+  if (!completion || (state.stage === 'open' && state.activeQuestionId === question.id)) {
+    throw new ApiError(409, '답안 제출이 마감된 뒤 채점할 수 있습니다.');
+  }
+  return { question, responses: state.responses.filter((response) => response.questionId === question.id).slice(0, completion.total) };
+}
+
+export function readEssayReview(state, questionId) {
+  const { question, responses } = completedEssay(state, questionId);
+  return {
+    question: { id: question.id, title: question.title, gradingGuide: question.gradingGuide || '' },
+    entries: responses.map(({ reviewId, value, correct }) => ({ id: reviewId, value, correct: correct ?? null }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  };
+}
+
+function gradeEssay(state, body) {
+  if (typeof body.correct !== 'boolean' || typeof body.responseId !== 'string' || !body.responseId) {
+    throw new ApiError(400, '채점할 답안과 결과를 선택해 주세요.');
+  }
+  const { question, responses } = completedEssay(state, body.questionId);
+  const target = responses.find((response) => response.reviewId === body.responseId);
+  if (!target) throw new ApiError(404, '채점할 답안을 찾을 수 없습니다.');
+  if (target.correct === body.correct) return accepted(state);
+
+  const graded = { ...target, correct: body.correct };
+  const updatedResponses = state.responses.map((response) => response === target ? graded : response);
+  const gradedResponses = responses.map((response) => response === target ? graded : response);
+  const history = state.history.map((entry) => entry.questionId === question.id
+    ? { ...entry, ...summarizeResponses(question, gradedResponses.slice(0, entry.total)) }
+    : entry);
+  return accepted({ ...state, responses: updatedResponses, history });
 }
 
 export function settleQuizTimer(state, now = Date.now()) {
@@ -264,7 +350,7 @@ function joinRoom(state, body, { randomHex, randomUUID }) {
   };
 }
 
-function submitAnswer(state, body, participantToken, now) {
+function submitAnswer(state, body, { participantToken, now, randomUUID }) {
   const participant = getParticipant(state, participantToken);
   if (!participant) throw new ApiError(401, '닉네임으로 수업에 먼저 참여해 주세요.');
   if (state.stage === 'closed') throw new ApiError(409, '답안 제출이 마감되었습니다.');
@@ -280,7 +366,11 @@ function submitAnswer(state, body, participantToken, now) {
     throw new ApiError(409, '이미 이 문제에 답안을 제출했습니다.');
   }
   let value = body.value;
-  if (question.type === 'short') {
+  if (question.type === 'essay') {
+    if (typeof value !== 'string' || !value.trim() || [...value].length > essayLimit) {
+      throw new ApiError(400, '서술형 답안을 1~2,000자로 입력해 주세요.');
+    }
+  } else if (question.type === 'short') {
     value = cleanText(value, 160, '단답형 답안을 1~160자로 입력해 주세요.');
   } else if (!Number.isInteger(value) || value < 0 || value >= question.options.length) {
     throw new ApiError(400, '보기에서 답안을 하나 선택해 주세요.');
@@ -292,6 +382,7 @@ function submitAnswer(state, body, participantToken, now) {
     value,
     submittedAt: new Date(now).toISOString(),
   };
+  if (question.type === 'essay') response.reviewId = randomUUID();
   return {
     state: { ...state, responses: [...state.responses, response] },
     status: 201,
@@ -315,6 +406,10 @@ export function applyQuizMutation(state, action, body, context) {
   switch (action) {
     case 'questions':
       return saveQuestion(state, body, context.randomUUID);
+    case 'replace-questions':
+      return replaceQuestions(state, body, { now, randomUUID: context.randomUUID });
+    case 'essay-grade':
+      return gradeEssay(state, body);
     case 'open':
       requiredQuestion(state, body.id);
       if (state.activeQuestionId === body.id && state.stage === 'open') return accepted(state);
@@ -330,7 +425,7 @@ export function applyQuizMutation(state, action, body, context) {
     case 'join':
       return joinRoom(state, body, context);
     case 'answer':
-      return submitAnswer(state, body, context.participantToken, now);
+      return submitAnswer(state, body, { ...context, now });
     default:
       throw new ApiError(404, '요청한 기능을 찾을 수 없습니다.');
   }
