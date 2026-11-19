@@ -79,7 +79,7 @@
     </section>
 
     <div class="dashboard" id="overview-panel" role="tabpanel" aria-labelledby="overview-tab" data-panel="overview">
-      <section class="panel bank-panel" aria-labelledby="bank-heading">
+      <section class="panel bank-panel" id="bank-panel" aria-labelledby="bank-heading" hidden>
         <div class="panel-heading">
           <h2 id="bank-heading">문제 목록</h2>
           <span class="count-badge" id="metric-total-questions">전체 0문항</span>
@@ -93,17 +93,24 @@
       <section class="panel question-panel" aria-labelledby="question-heading">
         <div class="panel-heading">
           <h2 id="question-heading">출제 화면</h2>
-          <button class="button edit-button" type="button" id="edit-question"><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg>수정</button>
+          <div class="question-controls">
+            <button class="button edit-button" type="button" id="edit-question" hidden><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg>수정</button>
+            <button class="button button-secondary" type="button" id="toggle-question-management" aria-expanded="false" aria-controls="bank-panel" disabled>문제 관리</button>
+          </div>
         </div>
         <div class="question-body">
-          <div class="question-meta"><span class="kind-badge" id="question-kind"></span><span class="state-badge" id="question-state"></span></div>
+          <div class="question-meta">
+            <span class="kind-badge" id="question-kind"></span><span class="state-badge" id="question-state"></span>
+            <div class="countdown" id="countdown" role="timer" aria-live="off" hidden><span>남은 시간</span><strong id="countdown-value">00:00</strong></div>
+          </div>
           <h3 id="question-title">수업을 불러오는 중입니다.</h3>
           <div class="question-options" id="question-options"></div>
         </div>
         <div class="question-actions">
-          <button class="button button-primary" type="button" id="open-question" disabled><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>문제 열기</button>
-          <button class="button button-primary" type="button" id="close-question" disabled><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>접수 마감</button>
-          <button class="button button-secondary" type="button" id="wait-question" disabled>대기 화면</button>
+          <button class="button button-primary" type="button" id="next-question" disabled><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>다음 문제 열기</button>
+          <button class="button button-primary" type="button" id="open-question" disabled hidden><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>선택한 문제 열기</button>
+          <button class="button button-primary" type="button" id="close-question" disabled hidden><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>접수 마감</button>
+          <button class="button button-secondary" type="button" id="wait-question" disabled hidden>대기 화면</button>
         </div>
       </section>
 

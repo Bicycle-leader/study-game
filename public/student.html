@@ -35,6 +35,12 @@
         <h1 id="page-title" tabindex="-1">수업 참여하기</h1>
         <p class="intro" id="intro">강사가 알려준 입장 코드와 화면에 표시할 닉네임을 입력하세요.</p>
 
+        <div class="question-timer" id="question-timer" hidden>
+          <span class="timer-icon" aria-hidden="true"></span>
+          <span id="timer-status">남은 시간</span>
+          <span class="countdown" id="countdown" role="timer" aria-labelledby="timer-status" aria-live="off">00:30</span>
+        </div>
+
         <form class="join-form" id="join-form">
           <div class="field">
             <label for="room-code">입장 코드</label>

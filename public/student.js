@@ -2,7 +2,7 @@ const ui = Object.fromEntries([
   'page-title', 'panel-label', 'room-label', 'intro', 'join-form', 'room-code', 'nickname',
   'join-button', 'notice', 'notice-icon', 'notice-text', 'retry-button', 'answer-form',
   'choices', 'short-field', 'short-answer', 'answer-button', 'answer-result', 'result-badge',
-  'result-details', 'form-error', 'live-update', 'student-name'
+  'result-details', 'form-error', 'live-update', 'student-name', 'question-timer', 'timer-status', 'countdown'
 ].map(id => [id, document.getElementById(id)]));
 
 const roomParameter = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase();
@@ -11,7 +11,10 @@ let session = readSession();
 let state = null;
 let connectionError = false;
 let sendingAnswer = false;
+let needsFreshState = false;
 let pollTimer;
+let countdownInterval;
+let deadline = null;
 let requestingState = false;
 let dataRevision = 0;
 let shownQuestion = '';
@@ -122,9 +125,9 @@ function showResult(question, response, closed) {
   return message;
 }
 
-function buildOptions(question) {
+function buildOptions(question, closesAt) {
   const options = question.type === 'multiple' ? question.options : [];
-  const key = JSON.stringify([question.id, question.type, options]);
+  const key = JSON.stringify([question.id, question.type, options, closesAt]);
   if (shownQuestion === key) return;
   shownQuestion = key;
   ui['short-answer'].value = '';
@@ -156,10 +159,60 @@ function announce(key, message) {
   ui['live-update'].textContent = message;
 }
 
+function observeDeadline(latest, serverNow) {
+  const { question, stage, closesAt } = latest;
+  if (stage !== 'open' || !question || !Number.isFinite(closesAt) || !Number.isFinite(serverNow)) {
+    deadline = null;
+    return;
+  }
+
+  // Use the server's remaining time at receipt to avoid closing early on slow uploads.
+  const candidate = performance.now() + (closesAt - serverNow);
+  const sameOpening = deadline?.questionId === question.id && deadline.closesAt === closesAt;
+  deadline = { questionId: question.id, closesAt, localTime: sameOpening ? Math.min(deadline.localTime, candidate) : candidate };
+}
+
+function millisecondsLeft() {
+  return deadline ? Math.max(0, deadline.localTime - performance.now()) : null;
+}
+
+function refreshCountdown() {
+  const remaining = millisecondsLeft();
+  const closed = state?.stage === 'closed' || remaining === 0;
+  const timer = ui['question-timer'];
+  timer.hidden = !state?.question || (!closed && remaining === null);
+  ui['answer-button'].disabled = sendingAnswer || needsFreshState || closed;
+  ui.choices.disabled = closed;
+  ui['short-answer'].disabled = closed;
+
+  if (!timer.hidden) {
+    const seconds = closed ? 0 : Math.ceil(remaining / 1000);
+    const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    const message = closed ? '접수 마감' : '남은 시간';
+    if (ui.countdown.textContent !== time) ui.countdown.textContent = time;
+    if (ui['timer-status'].textContent !== message) ui['timer-status'].textContent = message;
+    timer.classList.toggle('is-urgent', !closed && seconds <= 10);
+    timer.classList.toggle('is-closed', closed);
+  }
+
+  if (remaining === 0 && state?.stage === 'open') {
+    ui.intro.textContent = '접수가 마감되었습니다. 채점 결과를 기다리고 있어요.';
+    if (!connectionError) announce(`deadline-${deadline.questionId}-${deadline.closesAt}`, '접수가 마감되었습니다.');
+  }
+
+  if (remaining > 0) {
+    countdownInterval ??= setInterval(refreshCountdown, 175);
+  } else {
+    clearInterval(countdownInterval);
+    countdownInterval = undefined;
+  }
+}
+
 function render() {
   const inRoom = Boolean(session);
   const question = state?.question;
   const closed = state?.stage === 'closed';
+  const expired = millisecondsLeft() === 0;
   const response = state?.response;
   const takingAnswers = state?.stage === 'open' && !response;
 
@@ -169,7 +222,6 @@ function render() {
   ui['student-name'].textContent = inRoom ? `참여 중 · ${session.nickname}` : '수업용 실시간 퀴즈';
   ui['answer-form'].hidden = !question || !takingAnswers;
   ui['answer-result'].hidden = !question || (!closed && !response);
-  ui['answer-button'].disabled = sendingAnswer;
   showNotice('', '');
 
   if (!inRoom) {
@@ -177,6 +229,7 @@ function render() {
     ui['page-title'].textContent = '수업 참여하기';
     ui.intro.textContent = '강사가 알려준 입장 코드와 화면에 표시할 닉네임을 입력하세요.';
     announce('join', '');
+    refreshCountdown();
     return;
   }
 
@@ -195,13 +248,13 @@ function render() {
     ui['short-field'].hidden = multiple;
 
     if (takingAnswers) {
-      buildOptions(question);
+      buildOptions(question, state.closesAt);
       ui.intro.textContent = multiple ? '보기 중 정답 하나를 선택해 주세요.' : '답안을 짧게 입력해 주세요.';
-      announce(`open-${question.id}`, `문제가 열렸습니다. ${question.title}`);
+      if (!expired) announce(`open-${question.id}-${state.closesAt}`, `문제가 열렸습니다. ${question.title}`);
     } else {
       const result = showResult(question, response, closed);
       ui.intro.textContent = closed ? '답안 제출이 마감되었습니다.' : '강사가 문제를 마감하면 채점 결과가 표시됩니다.';
-      announce(`${closed}-${question.id}-${result}`, result);
+      if (!expired) announce(`${closed}-${question.id}-${result}`, result);
     }
   }
 
@@ -209,6 +262,7 @@ function render() {
     showNotice('수업방에 다시 연결하고 있어요.', '!', true);
     announce('connection-error', '수업방과의 연결이 끊어졌습니다.');
   }
+  refreshCountdown();
 }
 
 function schedulePoll() {
@@ -222,22 +276,26 @@ async function syncState() {
   requestingState = true;
   const currentSession = session;
   const revision = dataRevision;
-
   try {
-    const latest = await request(`/api/state?code=${encodeURIComponent(currentSession.roomCode)}`);
+    const { serverNow, ...latest } = await request(`/api/state?code=${encodeURIComponent(currentSession.roomCode)}`);
     if (session !== currentSession || revision !== dataRevision) return;
-    const changedView = state?.question?.id !== latest.question?.id || state?.stage !== latest.stage;
+    const changedView = state?.question?.id !== latest.question?.id || state?.stage !== latest.stage || state?.closesAt !== latest.closesAt;
     const changed = changedView || connectionError || JSON.stringify(state) !== JSON.stringify(latest);
+    observeDeadline(latest, serverNow);
     state = latest;
     connectionError = false;
+    needsFreshState = false;
     if (changedView) setError();
     if (changed) render();
+    else refreshCountdown();
   } catch (error) {
     if (session !== currentSession || revision !== dataRevision) return;
     if (error.status === 401 || error.status === 404) {
       ui['room-code'].value = currentSession.roomCode;
       ui.nickname.value = currentSession.nickname;
       state = null;
+      deadline = null;
+      needsFreshState = false;
       saveSession(null);
       render();
       setError('참여 정보가 만료되었습니다. 입장 코드를 확인하고 다시 참여해 주세요.');
@@ -282,9 +340,13 @@ ui['join-form'].addEventListener('submit', async event => {
 
 ui['answer-form'].addEventListener('submit', async event => {
   event.preventDefault();
-  if (!state?.question || state.stage !== 'open' || state.response || sendingAnswer) return;
+  if (!state?.question || state.stage !== 'open' || state.response || sendingAnswer || needsFreshState) return;
+  if (millisecondsLeft() === 0) {
+    refreshCountdown();
+    return;
+  }
   setError();
-  const question = state.question;
+  const { question, closesAt } = state;
   const selected = ui.choices.querySelector('input:checked');
   const value = question.type === 'multiple' ? Number(selected?.value) : ui['short-answer'].value.trim();
   if (question.type === 'multiple' ? !selected : !value) {
@@ -298,16 +360,17 @@ ui['answer-form'].addEventListener('submit', async event => {
   dataRevision += 1;
   ui['answer-button'].disabled = true;
   try {
-    const submitted = await request('/api/answer', { value, questionId: question.id });
+    const submitted = await request('/api/answer', { value, questionId: question.id, closesAt });
     state.response = submitted.response;
     connectionError = false;
     render();
     ui['page-title'].focus();
   } catch (error) {
+    needsFreshState = error.status === 409 || error.status === 401;
     setError(error.status ? error.message : '답안을 제출할 수 없습니다. 잠시 후 다시 시도해 주세요.');
   } finally {
     sendingAnswer = false;
-    ui['answer-button'].disabled = false;
+    refreshCountdown();
     syncState();
   }
 });
@@ -316,7 +379,10 @@ ui['join-form'].addEventListener('input', () => setError());
 ui['answer-form'].addEventListener('input', () => setError());
 ui['retry-button'].addEventListener('click', syncState);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) syncState();
+  if (!document.hidden) {
+    refreshCountdown();
+    syncState();
+  }
 });
 
 render();

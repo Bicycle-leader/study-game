@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
 const kindLabels = { multiple: '객관식', short: '단답형' };
-const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '채점 완료' };
+const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '접수 마감' };
 const optionMarkers = ['A', 'B', 'C', 'D'];
 const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, optionCounts: [] };
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
@@ -18,7 +18,10 @@ let revision = 0;
 let toastTimeout;
 let renderedQrUrl;
 let presenting = false;
+let managing = false;
 let activeTab = 'overview';
+let countdown = null;
+let countdownTick = null;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -88,6 +91,17 @@ function selectedQuestion() {
   return state?.questions.find((item) => item.id === selectedId);
 }
 
+function releasedQuestion() {
+  if (state?.stage === 'waiting') return null;
+  return state?.questions.find((item) => item.id === state.activeQuestionId);
+}
+
+function nextQuestion() {
+  if (!state) return null;
+  const index = state.questions.findIndex((item) => item.id === state.activeQuestionId);
+  return state.questions[index + 1];
+}
+
 function syncControls() {
   const question = selectedQuestion();
   const isActive = Boolean(question && state.activeQuestionId === question.id);
@@ -98,9 +112,12 @@ function syncControls() {
     state.history?.some((entry) => entry.questionId === question.id && entry.total > 0)
   );
   const controls = {
-    'add-question': { disabled: busy || !state, hidden: presenting },
-    'edit-question': { disabled: busy || !question || Boolean(isUsed), hidden: presenting },
-    'open-question': { disabled: busy || !question || (isActive && isOpen), hidden: isActive && isOpen },
+    'toggle-question-management': { disabled: busy || !state, hidden: presenting },
+    'bank-panel': { hidden: !managing },
+    'add-question': { disabled: busy || !state },
+    'edit-question': { disabled: busy || !question || Boolean(isUsed), hidden: !managing },
+    'open-question': { disabled: busy || !question || isOpen, hidden: !managing || isOpen },
+    'next-question': { disabled: busy || !nextQuestion() || isOpen, hidden: managing || isOpen },
     'close-question': { disabled: busy || !isOpen, hidden: !isOpen },
     'wait-question': { disabled: busy || isWaiting, hidden: isWaiting || isOpen },
     'copy-code': { disabled: !state },
@@ -113,13 +130,18 @@ function syncControls() {
     const node = $(id);
     if (node) Object.assign(node, properties);
   }
+  $('overview-panel').classList.toggle('is-managing', managing);
+  $('toggle-question-management').setAttribute('aria-expanded', String(managing));
+  setText('toggle-question-management', managing ? '문제 관리 닫기' : '문제 관리');
   const edit = $('edit-question');
   if (edit) edit.title = isUsed ? '응답이 제출된 문항은 수정할 수 없습니다.' : '문항 수정';
 }
 
 function renderQuestionList() {
   const { activeQuestionId, questions, stage } = state;
-  renderList('question-list', [questions, selectedId, activeQuestionId, stage], () => {
+  const signature = managing ? [questions, selectedId, activeQuestionId, stage] : null;
+  renderList('question-list', signature, () => {
+    if (!managing) return [];
     if (!questions.length) return [empty('등록된 문항이 없습니다', '문항 추가 버튼으로 첫 문제를 만들어 보세요.')];
 
     return questions.map((question, index) => {
@@ -142,12 +164,13 @@ function renderQuestionList() {
 }
 
 function renderQuestion() {
-  const question = selectedQuestion();
-  const questionStage = question && question.id === state.activeQuestionId ? state.stage : 'preview';
+  const question = managing ? selectedQuestion() : releasedQuestion();
+  const stage = question ? state.stage : 'waiting';
+  const questionStage = question && question.id !== state.activeQuestionId ? 'preview' : stage;
   const index = question ? state.questions.indexOf(question) + 1 : null;
   setText('current-question-number', index === null ? '' : `문항 ${String(index).padStart(2, '0')}`);
-  setText('question-title', question?.title || '문항을 선택해 주세요');
-  setText('question-kind', question ? kindLabels[question.type] : '문항');
+  setText('question-title', question?.title || (managing ? '문항을 선택해 주세요' : '아직 열린 문제가 없습니다'));
+  setText('question-kind', question ? kindLabels[question.type] : '');
   setText('question-state', stageLabels[questionStage] || '미리 보기');
   const badge = $('question-state');
   if (badge) badge.dataset.stage = questionStage;
@@ -195,19 +218,20 @@ function countBreakdown(items, total, kind) {
 }
 
 function renderResponseSummary() {
-  const { activeQuestionId, summary = emptySummary, stage } = state;
-  const activeQuestion = state.questions.find((question) => question.id === activeQuestionId);
+  const { stage } = state;
+  const question = releasedQuestion();
+  const summary = question ? (state.summary || emptySummary) : emptySummary;
   const hideResults = presenting && stage === 'open';
   setText('response-count', `${summary.total}건`);
-  setText('response-question-title', activeQuestion && selectedId !== activeQuestionId ? activeQuestion.title : '');
+  setText('response-question-title', managing && question && selectedId !== question.id ? question.title : '');
   setText('metric-submissions', summary.total);
   setText('metric-correct', hideResults ? '' : summary.correctCount);
   setText('metric-rate', hideResults ? '' : accuracy(summary));
 
-  renderList('response-list', [activeQuestion?.id, hideResults ? null : summary], () => {
+  renderList('response-list', [question?.id, hideResults ? null : summary], () => {
     if (hideResults) return [];
-    if (!activeQuestion) return [empty('출제된 문항이 없습니다', '문제를 열면 제출 현황을 볼 수 있습니다.')];
-    if (activeQuestion.type === 'multiple') {
+    if (!question) return [empty('응답 집계 대기', '문제를 열면 제출 현황을 볼 수 있습니다.')];
+    if (question.type === 'multiple') {
       return [countBreakdown(summary.optionCounts, summary.total, 'option')];
     }
     return [countBreakdown([
@@ -307,12 +331,49 @@ function forgetLogin() {
   showLogin(hosted ? '강사 로그인 시간이 만료되었습니다.' : '강사 로그인 키를 입력해 주세요.');
 }
 
+function updateCountdown() {
+  const seconds = Math.max(0, Math.ceil((countdown.deadline - performance.now()) / 1000));
+  countdown.seconds = Math.min(countdown.seconds, seconds);
+  const minutesText = String(Math.floor(countdown.seconds / 60)).padStart(2, '0');
+  const secondsText = String(countdown.seconds % 60).padStart(2, '0');
+  setText('countdown-value', `${minutesText}:${secondsText}`);
+  $('countdown').dataset.urgent = String(countdown.seconds <= 5);
+  if (countdown.seconds === 0) {
+    clearInterval(countdownTick);
+    countdownTick = null;
+  }
+}
+
+function syncCountdown({ stage, activeQuestionId, closesAt, serverNow }, receivedAt) {
+  const isOpen = stage === 'open' && Number.isFinite(closesAt) && Number.isFinite(serverNow);
+  $('countdown').hidden = !isOpen;
+  if (!isOpen) {
+    clearInterval(countdownTick);
+    countdownTick = null;
+    countdown = null;
+    setText('countdown-value', '00:00');
+    return;
+  }
+  const sameDeadline = countdown?.closesAt === closesAt && countdown.questionId === activeQuestionId;
+  countdown = {
+    closesAt,
+    questionId: activeQuestionId,
+    deadline: receivedAt + (closesAt - serverNow),
+    seconds: sameDeadline ? countdown.seconds : Infinity,
+  };
+  updateCountdown();
+  if (countdown.seconds > 0 && countdownTick === null) {
+    countdownTick = setInterval(updateCountdown, 100);
+  }
+}
+
 async function loadState() {
   const requestedAt = revision;
   try {
     const fresh = await api('/api/state');
     if (requestedAt !== revision) return;
     state = fresh;
+    syncCountdown(fresh, performance.now());
     setConnection('online');
     render();
   } catch (error) {
@@ -555,18 +616,28 @@ document.querySelectorAll('[data-dismiss]').forEach((button) => {
 
 listen('question-list', 'click', (event) => {
   const item = event.target.closest('[data-question-id]');
-  if (item && !busy) {
+  if (item && managing && !busy) {
     selectedId = item.dataset.questionId;
     render();
   }
 });
 
+listen('toggle-question-management', 'click', () => {
+  if (presenting || busy || !state) return;
+  managing = !managing;
+  render();
+});
 listen('add-question', 'click', () => openQuestionDialog());
 listen('edit-question', 'click', () => openQuestionDialog(selectedQuestion()));
-listen('open-question', 'click', () => {
-  if (!selectedId) return;
-  mutate('open', { id: selectedId }, { message: '학생들의 답안을 받기 시작합니다.' });
-});
+function releaseQuestion(question) {
+  if (!question || busy || state.stage === 'open') return;
+  managing = false;
+  selectedId = question.id;
+  render();
+  mutate('open', { id: question.id }, { message: '학생들의 답안을 받기 시작합니다.' });
+}
+listen('open-question', 'click', () => { if (managing) releaseQuestion(selectedQuestion()); });
+listen('next-question', 'click', () => { if (!managing) releaseQuestion(nextQuestion()); });
 listen('close-question', 'click', () => {
   const activeId = state?.activeQuestionId;
   mutate('close', {}, {
@@ -601,6 +672,7 @@ listen('reset-class', 'click', () => {
     message: '새 수업이 시작되었습니다. 새로운 참여 링크를 공유하세요.',
     after: () => {
       selectedId = null;
+      managing = false;
       activateTab('overview');
     },
   });
@@ -617,6 +689,7 @@ function setPresentation(active) {
   presenting = active;
   document.body.classList.toggle('is-projecting', active);
   if (active) {
+    managing = false;
     $('question-dialog')?.close();
     if (activeTab === 'participants') activateTab('overview');
   }

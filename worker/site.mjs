@@ -1,5 +1,5 @@
 import assets from './assets.mjs';
-import { ApiError, applyQuizMutation, createQuizState, readStudentState, readTeacherState } from './quiz-engine.mjs';
+import { ApiError, applyQuizMutation, createQuizState, readStudentState, readTeacherState, settleQuizTimer } from './quiz-engine.mjs';
 
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
@@ -93,39 +93,58 @@ async function loadQuiz(db) {
   const read = db.prepare('SELECT version, state_json FROM quiz_state WHERE id = 1');
   let row = await read.first();
   if (!row) {
-    const initial = { ...createQuizState({ randomHex }), stage: 'waiting', activeQuestionId: null };
+    const initial = createQuizState({ randomHex });
     await db.prepare('INSERT OR IGNORE INTO quiz_state (id, state_json) VALUES (1, ?)').bind(JSON.stringify(initial)).run();
     row = await read.first();
   }
   return { version: row.version, state: JSON.parse(row.state_json) };
 }
 
-async function mutateQuiz(db, action, body, participantToken) {
+async function updateQuiz(db, version, state) {
+  const write = await db.prepare('UPDATE quiz_state SET state_json = ?, version = version + 1 WHERE id = 1 AND version = ?')
+    .bind(JSON.stringify(state), version).run();
+  return write.meta.changes === 1;
+}
+
+async function runQuizOperation(db, operation) {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const { version, state } = await loadQuiz(db);
-    const result = applyQuizMutation(state, action, body, { participantToken, randomHex, randomUUID: () => crypto.randomUUID() });
-    if (result.state === state) return json(result.payload, result.status);
-    const write = await db.prepare('UPDATE quiz_state SET state_json = ?, version = version + 1 WHERE id = 1 AND version = ?')
-      .bind(JSON.stringify(result.state), version).run();
-    if (write.meta.changes === 1) return json(result.payload, result.status);
+    const now = Date.now();
+    const settled = settleQuizTimer(state, now);
+    if (settled !== state) {
+      // Commit the timer change first, including when the requested action will be rejected.
+      if (await updateQuiz(db, version, settled)) continue;
+    } else {
+      const response = await operation({ state, version, now });
+      if (response) return response;
+    }
     // Reapply the mutation after a concurrent submission or teacher action changes the room.
     await new Promise((resolve) => setTimeout(resolve, 10 + Math.random() * Math.min(40 + attempt * 20, 180)));
   }
   throw new ApiError(503, '요청이 몰리고 있습니다. 잠시 후 다시 시도해 주세요.');
 }
 
+function mutateQuiz(db, action, body, participantToken) {
+  return runQuizOperation(db, async ({ state, version, now }) => {
+    const result = applyQuizMutation(state, action, body, {
+      participantToken, randomHex, randomUUID: () => crypto.randomUUID(), now,
+    });
+    if (result.state === state || await updateQuiz(db, version, result.state)) return json(result.payload, result.status);
+    return null;
+  });
+}
+
 async function handleApi(request, env, url) {
   const participantToken = request.headers.get('X-Participant-Token');
   if (request.method === 'GET' && url.pathname === '/api/state') {
-    if (request.headers.has('Authorization')) {
-      await requireTeacher(request, env);
-      const { state } = await loadQuiz(env.DB);
+    const isTeacher = request.headers.has('Authorization');
+    if (isTeacher) await requireTeacher(request, env);
+    return runQuizOperation(env.DB, ({ state, now }) => {
+      if (!isTeacher) return json(readStudentState(state, url.searchParams.get('code'), participantToken, now));
       const joinUrl = new URL('/join', url);
       joinUrl.searchParams.set('code', state.roomCode);
-      return json(readTeacherState(state, joinUrl.href));
-    }
-    const { state } = await loadQuiz(env.DB);
-    return json(readStudentState(state, url.searchParams.get('code'), participantToken));
+      return json(readTeacherState(state, joinUrl.href, now));
+    });
   }
   if (request.method === 'POST') {
     if (url.pathname === '/api/teacher/login') return login(request, env);

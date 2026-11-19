@@ -24,6 +24,7 @@ const seedQuestions = [
     acceptedAnswers: [],
   },
 ];
+const answerDurationMs = 30_000;
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -39,8 +40,9 @@ function createRoomCode(randomHex) {
 export function createQuizState({ randomHex }) {
   return {
     roomCode: createRoomCode(randomHex),
-    stage: 'open',
-    activeQuestionId: seedQuestions[0].id,
+    stage: 'waiting',
+    activeQuestionId: null,
+    closesAt: null,
     questions: structuredClone(seedQuestions),
     participants: [],
     responses: [],
@@ -123,12 +125,14 @@ function readHistoryEntry(state, entry) {
   return { ...entry, optionCounts: matchesEntry ? optionCounts : [] };
 }
 
-export function readTeacherState(state, joinUrl) {
+export function readTeacherState(state, joinUrl, now = Date.now()) {
   const question = findQuestion(state, state.activeQuestionId);
   return {
     roomCode: state.roomCode,
     stage: state.stage,
     activeQuestionId: state.activeQuestionId,
+    closesAt: state.stage === 'open' ? state.closesAt ?? null : null,
+    serverNow: now,
     questions: state.questions,
     participants: state.participants.map(publicParticipant),
     summary: summarizeQuestion(state, question),
@@ -137,7 +141,7 @@ export function readTeacherState(state, joinUrl) {
   };
 }
 
-export function readStudentState(state, code, participantToken) {
+export function readStudentState(state, code, participantToken, now = Date.now()) {
   requireRoom(state, code);
   const participant = getParticipant(state, participantToken);
   if (participantToken && !participant) {
@@ -156,6 +160,8 @@ export function readStudentState(state, code, participantToken) {
   return {
     roomCode: state.roomCode,
     stage: state.stage,
+    closesAt: state.stage === 'open' ? state.closesAt ?? null : null,
+    serverNow: now,
     question: visibleQuestion,
     participant: publicParticipant(participant),
     response: publicResponse(ownResponse, question, showResult),
@@ -202,7 +208,7 @@ function saveQuestion(state, body, randomUUID) {
   return { state: { ...state, questions }, status: existing ? 200 : 201, payload: { question } };
 }
 
-function closeQuestion(state) {
+function closeQuestion(state, closedAt) {
   if (state.stage === 'closed') return state;
   if (state.stage !== 'open') throw new ApiError(409, '채점할 문제가 열려 있지 않습니다.');
   const question = requiredQuestion(state, state.activeQuestionId);
@@ -210,10 +216,16 @@ function closeQuestion(state) {
     questionId: question.id,
     title: question.title,
     type: question.type,
-    closedAt: new Date().toISOString(),
+    closedAt: new Date(closedAt).toISOString(),
     ...summarizeQuestion(state, question),
   };
-  return { ...state, stage: 'closed', history: [entry, ...(state.history || [])] };
+  return { ...state, stage: 'closed', closesAt: null, history: [entry, ...(state.history || [])] };
+}
+
+export function settleQuizTimer(state, now = Date.now()) {
+  if (state.stage !== 'open') return state;
+  if (!Number.isSafeInteger(state.closesAt)) return { ...state, closesAt: now + answerDurationMs };
+  return now >= state.closesAt ? closeQuestion(state, state.closesAt) : state;
 }
 
 function resetRoom(state, randomHex) {
@@ -226,6 +238,7 @@ function resetRoom(state, randomHex) {
     questions: state.questions,
     stage: 'waiting',
     activeQuestionId: null,
+    closesAt: null,
     participants: [],
     responses: [],
     history: [],
@@ -251,13 +264,17 @@ function joinRoom(state, body, { randomHex, randomUUID }) {
   };
 }
 
-function submitAnswer(state, body, participantToken) {
+function submitAnswer(state, body, participantToken, now) {
   const participant = getParticipant(state, participantToken);
   if (!participant) throw new ApiError(401, '닉네임으로 수업에 먼저 참여해 주세요.');
+  if (state.stage === 'closed') throw new ApiError(409, '답안 제출이 마감되었습니다.');
   if (state.stage !== 'open') throw new ApiError(409, '답안을 받는 시간이 아닙니다.');
   const question = requiredQuestion(state, state.activeQuestionId);
   if (body.questionId !== undefined && body.questionId !== question.id) {
     throw new ApiError(409, '문제가 바뀌었습니다. 새 문제를 확인해 주세요.');
+  }
+  if (body.closesAt !== undefined && body.closesAt !== state.closesAt) {
+    throw new ApiError(409, '문제의 제출 시간이 바뀌었습니다. 다시 확인해 주세요.');
   }
   if (state.responses.some((response) => response.questionId === question.id && response.participantId === participant.id)) {
     throw new ApiError(409, '이미 이 문제에 답안을 제출했습니다.');
@@ -273,7 +290,7 @@ function submitAnswer(state, body, participantToken) {
     participantId: participant.id,
     nickname: participant.nickname,
     value,
-    submittedAt: new Date().toISOString(),
+    submittedAt: new Date(now).toISOString(),
   };
   return {
     state: { ...state, responses: [...state.responses, response] },
@@ -293,24 +310,27 @@ function accepted(state) {
 }
 
 export function applyQuizMutation(state, action, body, context) {
+  const now = context.now ?? Date.now();
+  state = settleQuizTimer(state, now);
   switch (action) {
     case 'questions':
       return saveQuestion(state, body, context.randomUUID);
     case 'open':
       requiredQuestion(state, body.id);
+      if (state.activeQuestionId === body.id && state.stage === 'open') return accepted(state);
       if (state.activeQuestionId !== body.id) requireClosedCollection(state);
-      return accepted({ ...state, activeQuestionId: body.id, stage: 'open' });
+      return accepted({ ...state, activeQuestionId: body.id, stage: 'open', closesAt: now + answerDurationMs });
     case 'close':
-      return accepted(closeQuestion(state));
+      return accepted(closeQuestion(state, now));
     case 'wait':
       requireClosedCollection(state);
-      return accepted({ ...state, stage: 'waiting' });
+      return accepted({ ...state, stage: 'waiting', closesAt: null });
     case 'reset':
       return accepted(resetRoom(state, context.randomHex));
     case 'join':
       return joinRoom(state, body, context);
     case 'answer':
-      return submitAnswer(state, body, context.participantToken);
+      return submitAnswer(state, body, context.participantToken, now);
     default:
       throw new ApiError(404, '요청한 기능을 찾을 수 없습니다.');
   }

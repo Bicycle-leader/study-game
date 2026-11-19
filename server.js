@@ -28,7 +28,7 @@ const mimeTypes = {
 };
 
 async function main() {
-  const { ApiError, createQuizState, readTeacherState, readStudentState, applyQuizMutation } = await import('./quiz-engine.mjs');
+  const { ApiError, createQuizState, readTeacherState, readStudentState, applyQuizMutation, settleQuizTimer } = await import('./quiz-engine.mjs');
   const quizContext = {
     randomHex: (length) => crypto.randomBytes(length).toString('hex'),
     randomUUID: crypto.randomUUID,
@@ -51,6 +51,12 @@ async function main() {
     } finally {
       fs.rmSync(temporaryFile, { force: true });
     }
+  }
+
+  function updateState(nextState) {
+    if (nextState === state) return;
+    saveState(nextState);
+    state = nextState;
   }
 
   function sendJson(response, status, body) {
@@ -132,11 +138,14 @@ async function main() {
     const participantToken = request.headers['x-participant-token'];
     const route = `${request.method} ${url.pathname}`;
     if (route === 'GET /api/state') {
-      if (request.headers.authorization) {
-        requireTeacher(request);
-        return sendJson(response, 200, readTeacherState(state, studentJoinUrl(request)));
-      }
-      return sendJson(response, 200, readStudentState(state, url.searchParams.get('code'), participantToken));
+      const isTeacher = Boolean(request.headers.authorization);
+      if (isTeacher) requireTeacher(request);
+      const now = Date.now();
+      updateState(settleQuizTimer(state, now));
+      const payload = isTeacher
+        ? readTeacherState(state, studentJoinUrl(request), now)
+        : readStudentState(state, url.searchParams.get('code'), participantToken, now);
+      return sendJson(response, 200, payload);
     }
     if (route === 'POST /api/teacher/login') {
       const { key } = await readJson(request);
@@ -156,11 +165,10 @@ async function main() {
     }
 
     const body = await readJson(request);
-    const result = applyQuizMutation(state, action, body, { ...quizContext, participantToken });
-    if (result.state !== state) {
-      saveState(result.state);
-      state = result.state;
-    }
+    const now = Date.now();
+    updateState(settleQuizTimer(state, now));
+    const result = applyQuizMutation(state, action, body, { ...quizContext, participantToken, now });
+    updateState(result.state);
     sendJson(response, result.status, result.payload);
   }
 
