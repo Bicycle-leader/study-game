@@ -4,6 +4,8 @@ import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readLect
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
 const jsonLimit = 16 * 1024;
+const lectureImageLimit = 2_000_000;
+const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
 const allowedTeacherActions = new Set(['questions', 'question-sources', 'extend-choices', 'scope', 'lecture', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
 
 function randomHex(bytes) {
@@ -87,6 +89,86 @@ const responseHeaders = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy'
 
 function json(body, status = 200) {
   return Response.json(body, { status, headers: { ...responseHeaders, 'Cache-Control': 'no-store' } });
+}
+
+async function readLectureImage(request) {
+  if (!/^image\/png(?:\s*;|$)/i.test(request.headers.get('Content-Type') || '')) {
+    throw new ApiError(415, 'PNG 강의 이미지를 선택해 주세요.');
+  }
+  if (Number(request.headers.get('Content-Length')) > lectureImageLimit) {
+    throw new ApiError(413, '강의 이미지가 2 MB를 초과합니다.');
+  }
+  const reader = request.body?.getReader();
+  if (!reader) throw new ApiError(400, '강의 이미지가 비어 있습니다.');
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > lectureImageLimit) {
+        await reader.cancel();
+        throw new ApiError(413, '강의 이미지가 2 MB를 초과합니다.');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  if (size <= pngSignature.length || !pngSignature.every((value, index) => value === bytes[index])) {
+    throw new ApiError(400, 'PNG 이미지 형식이 올바르지 않습니다.');
+  }
+  return bytes;
+}
+
+async function storeLectureImage(request, bucket, key, hashPrefix) {
+  const bytes = await readLectureImage(request);
+  const checksum = await crypto.subtle.digest('SHA-256', bytes);
+  const sha256 = Array.from(new Uint8Array(checksum), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  if (!sha256.startsWith(hashPrefix)) throw new ApiError(400, '강의 이미지 식별자가 일치하지 않습니다.');
+
+  const stored = await bucket.put(key, bytes, {
+    onlyIf: new Headers({ 'If-None-Match': '*' }),
+    httpMetadata: { contentType: 'image/png' },
+    customMetadata: { sha256 },
+    sha256: checksum,
+  });
+  if (stored) return json({ ok: true }, 201);
+  const existing = await bucket.head(key);
+  if (existing?.customMetadata?.sha256 === sha256) return json({ ok: true });
+  throw new ApiError(409, '이 주소에는 이미 다른 강의 이미지가 저장되어 있습니다.');
+}
+
+async function serveLectureImage(request, env, pathname) {
+  const match = /^\/assets\/lecture\/([0-9]{2}-([a-f0-9]{12})\.png)$/.exec(pathname);
+  if (!match) throw new ApiError(404, '강의 이미지를 찾을 수 없습니다.');
+  if (request.method === 'PUT') await requireTeacher(request, env);
+  else if (request.method !== 'GET' && request.method !== 'HEAD') {
+    throw new ApiError(405, '지원하지 않는 요청입니다.');
+  }
+  const { BUCKET: bucket } = env;
+  if (!bucket) throw new ApiError(503, '강의 이미지 저장소를 사용할 수 없습니다.');
+
+  const key = `lecture/${match[1]}`;
+  if (request.method === 'PUT') return storeLectureImage(request, bucket, key, match[2]);
+  const object = request.method === 'HEAD' ? await bucket.head(key) : await bucket.get(key);
+  if (!object) throw new ApiError(404, '강의 이미지를 찾을 수 없습니다.');
+  return new Response(object.body ?? null, {
+    headers: {
+      ...responseHeaders,
+      'Content-Type': 'image/png',
+      'Content-Length': String(object.size),
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  });
 }
 
 async function loadQuiz(db) {
@@ -185,6 +267,7 @@ export default {
     try {
       const url = new URL(request.url);
       if (url.pathname.startsWith('/api/')) return await handleApi(request, env, url);
+      if (url.pathname.startsWith('/assets/lecture/')) return await serveLectureImage(request, env, url.pathname);
       return serveAsset(request, url.pathname);
     } catch (error) {
       if (error instanceof ApiError) return json({ error: error.message }, error.status);

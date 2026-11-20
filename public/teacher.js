@@ -930,8 +930,13 @@ function renderLectureQr(viewerUrl) {
   else renderLectureQrImage(viewerUrl, $('lecture-qr-image'), $('lecture-qr-error'), $('lecture-qr-view-link'));
 }
 
+function lectureTopicLabel(page) {
+  return page.label ? `${page.label} · ${page.title}` : page.title;
+}
+
 function renderLecture() {
   const index = currentLecturePage();
+  const currentPage = lecturePages?.[index];
   const slide = $('teacher-lecture-slide');
   const status = $('teacher-lecture-status');
   const viewerLink = $('lecture-student-link');
@@ -947,25 +952,34 @@ function renderLecture() {
     setText('teacher-lecture-status', message);
     slide.replaceChildren();
   } else if (renderedLecturePage !== index) {
-    lectureRenderer(slide, lecturePages[index], index, lecturePages.length);
+    lectureRenderer(slide, currentPage, index, lecturePages.length);
   }
   renderedLecturePage = index;
 
   $('teacher-lecture-tools').hidden = presenting;
-  renderList('lecture-jump', presenting ? null : lecturePages?.length ?? null, () => {
+  const imageIndex = currentPage?.image ? index : null;
+  renderList('lecture-jump', presenting ? null : [lecturePages?.length, imageIndex], () => {
     if (presenting || !lecturePages) return [];
     const chapters = new Map();
     lecturePages.forEach((page, index) => {
+      if (page.image) return;
       if (!chapters.has(page.chapter)) {
         const group = el('optgroup');
         group.label = page.chapter;
         chapters.set(page.chapter, group);
       }
-      const option = el('option', '', page.label ? `${page.label} · ${page.title}` : page.title);
+      const option = el('option', '', lectureTopicLabel(page));
       option.value = String(index);
       chapters.get(page.chapter).append(option);
     });
-    return [...chapters.values()];
+    if (imageIndex === null) return [...chapters.values()];
+
+    // Show the open topic without selecting its definition option, so it can be chosen again.
+    const position = el('option', '', `${lectureTopicLabel(currentPage)} · 이미지`);
+    position.value = String(imageIndex);
+    position.hidden = true;
+    position.disabled = true;
+    return [position, ...chapters.values()];
   });
   if (!presenting && index !== null) $('lecture-jump').value = String(index);
 }

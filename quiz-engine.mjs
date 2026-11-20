@@ -1,6 +1,7 @@
 import { lecturePages } from './public/lecture-content.mjs';
 
 const lecturePageCount = lecturePages.length;
+const lectureDeckVersion = 2;
 
 const seedQuestions = [
   {
@@ -54,6 +55,7 @@ export function createQuizState({ randomHex }) {
     activeQuestionId: null,
     closesAt: null,
     lecturePageIndex: 0,
+    lectureDeckVersion,
     questions: structuredClone(seedQuestions),
     participants: [],
     responses: [],
@@ -82,7 +84,11 @@ function isLecturePageIndex(value) {
 }
 
 function lecturePageIndex(state) {
-  return isLecturePageIndex(state.lecturePageIndex) ? state.lecturePageIndex : 0;
+  const savedIndex = state.lecturePageIndex;
+  if (!Number.isInteger(savedIndex)) return 0;
+  // Earlier rooms stored the positions of the definition pages before the images were inserted.
+  const index = state.lectureDeckVersion === undefined ? savedIndex * 2 : savedIndex;
+  return isLecturePageIndex(index) ? index : 0;
 }
 
 export function readLectureState(state, code) {
@@ -99,7 +105,7 @@ function showLecturePage(state, { pageIndex, expectedPageIndex }) {
   if (expectedPageIndex !== undefined && expectedPageIndex !== current) {
     throw new ApiError(409, '강의 페이지가 바뀌었습니다. 현재 페이지를 확인해 주세요.');
   }
-  return accepted({ ...state, lecturePageIndex: pageIndex });
+  return accepted({ ...state, lecturePageIndex: pageIndex, lectureDeckVersion });
 }
 
 function normalizeAnswer(answer) {
@@ -541,6 +547,7 @@ function resetRoom(state, randomHex, keepRoomCode = false) {
     activeQuestionId: null,
     closesAt: null,
     lecturePageIndex: 0,
+    lectureDeckVersion,
     participants: [],
     responses: [],
     history: [],

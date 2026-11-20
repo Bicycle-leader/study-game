@@ -1,4 +1,4 @@
-export const lecturePages = [
+const lectureDefinitions = [
   {
     chapter: "제1장 원리와 기능",
     label: "01",
@@ -442,3 +442,54 @@ export const lecturePages = [
     reference: "민사조정법 제28~29조 · 중재법 제3조 · 대법원 2011두1917",
   },
 ];
+
+const lectureImagesByTopic = {
+  "01": "01-6ea72331b5f9.png",
+  "02": "02-046e1409a8f8.png",
+  "03": "03-be0e675e91e4.png",
+  "04": "04-f53e9b780006.png",
+  "05": "05-6f4375a44c30.png",
+  "06": "06-50a87b4aa74e.png",
+  "07": "07-cbb44e4e5929.png",
+  "08": "08-13aa24f1a1bf.png",
+  "09": "09-96b677491379.png",
+  "10": "10-ffe75a10b71e.png",
+  "11": "11-d2546d291d80.png",
+  "12": "12-8fa19da56540.png",
+  "13": "13-c8dfb8c7e21b.png",
+  "14": "14-8e078f7d37b3.png",
+  "15": "15-f506d6c564d4.png",
+  "16": "16-bcf037e0a1d5.png",
+  "17": "17-91637fa69562.png",
+  "18": "18-786a1ccac51d.png",
+  "19": "19-35833069e26c.png",
+  "20": "20-1c98dc728fa7.png",
+  "21": "21-88e86fef4108.png",
+  "22": "22-b0120b568a94.png",
+  "23": "23-128d7e044eae.png",
+  "24": "24-0bf393717071.png",
+  "25": "25-55de73caa3d1.png",
+  "26": "26-940e17db07d4.png",
+  "27": "27-1d5173b98647.png",
+  "28": "28-967be6734fa6.png",
+  "논술 1": "29-2b030cf397bb.png",
+  "논술 2": "30-abe21ae1d36b.png",
+  "논술 3": "31-95846fd56977.png",
+};
+
+export const lecturePages = lectureDefinitions.flatMap((page) => {
+  const image = lectureImagesByTopic[page.label];
+  if (!image) return [page];
+
+  return [page, {
+    chapter: page.chapter,
+    label: page.label,
+    title: page.title,
+    image: {
+      src: "/assets/lecture/" + image,
+      alt: page.title + " 인포그래픽. " + page.lead,
+      width: 1672,
+      height: 941,
+    },
+  }];
+});

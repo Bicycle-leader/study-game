@@ -7,7 +7,7 @@ function element(tag, className, text) {
 
 export function renderLectureSlide(container, page, pageIndex, totalPages) {
   const layout = page.layout || 'concepts';
-  const article = element('article', 'lecture-slide');
+  const article = element('article', page.image ? 'lecture-slide lecture-image-slide' : 'lecture-slide');
   const header = element('header', 'lecture-slide-header');
   const heading = element('div', 'lecture-slide-heading');
   const title = element('h2', 'lecture-title', page.title);
@@ -19,6 +19,27 @@ export function renderLectureSlide(container, page, pageIndex, totalPages) {
 
   const progress = element('p', 'lecture-progress', `${pageIndex + 1} / ${totalPages}쪽`);
   header.append(heading, progress);
+  article.append(header);
+
+  if (page.image) {
+    const { src, alt, width, height } = page.image;
+    const figure = element('figure', 'lecture-image-frame');
+    const image = element('img', 'lecture-image');
+    image.alt = alt || page.title;
+    if (width && height) {
+      image.width = width;
+      image.height = height;
+    }
+    image.src = src;
+    const enlarge = element('a', 'lecture-image-enlarge', '이미지 크게 보기');
+    enlarge.href = src;
+    enlarge.target = '_blank';
+    enlarge.rel = 'noopener noreferrer';
+    figure.append(image, enlarge);
+    article.append(figure);
+    container.replaceChildren(article);
+    return;
+  }
 
   const content = element('div', 'lecture-slide-content');
   const points = element(layout === 'flow' ? 'ol' : 'ul', 'lecture-points');
@@ -38,7 +59,7 @@ export function renderLectureSlide(container, page, pageIndex, totalPages) {
     points.append(point);
   }
   content.append(element('p', 'lecture-lead', page.lead), points);
-  article.append(header, content);
+  article.append(content);
 
   if (page.takeaway || page.reference) {
     const footer = element('footer', 'lecture-slide-footer');

@@ -3,6 +3,10 @@
   "outputDirectory": "public",
   "rewrites": [
     {
+      "source": "/assets/lecture/:image",
+      "destination": "https://jijeok-class-quiz.hopesound.chatgpt.site/assets/lecture/:image"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://jijeok-class-quiz.hopesound.chatgpt.site/api/:path*"
     },

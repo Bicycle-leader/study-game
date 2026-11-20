@@ -5,6 +5,7 @@ import { lecturePages } from '../public/lecture-content.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const publicDirectory = path.join(root, 'public');
+const lectureImageDirectory = path.join(publicDirectory, 'assets', 'lecture');
 const serverDirectory = path.join(root, 'dist', 'server');
 const lecturePageCountSource = /^import \{ lecturePages \} from '\.\/public\/lecture-content\.mjs';\r?\n\r?\nconst lecturePageCount = lecturePages\.length;/;
 const mimeTypes = {
@@ -22,6 +23,8 @@ async function bundleAssets(directory) {
   for (const entry of entries) {
     const filename = path.join(directory, entry.name);
     if (entry.isDirectory()) {
+      // Hosted lecture PNGs are streamed from R2 instead of bundled into JavaScript.
+      if (filename === lectureImageDirectory) continue;
       Object.assign(assets, await bundleAssets(filename));
       continue;
     }
