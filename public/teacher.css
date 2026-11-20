@@ -88,6 +88,7 @@ a { color: inherit; }
 .lecture-share .button { min-height: 35px; text-decoration: none; }
 .teacher-lecture #teacher-lecture-status { min-height: 180px; display: grid; place-content: center; padding: 18px; color: var(--muted); text-align: center; }
 .lecture-actions { position: sticky; bottom: 0; z-index: 1; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 8px 0; background: var(--page); }
+.lecture-actions #show-lecture-qr { margin-inline-end: auto; }
 .is-lecture.is-projecting .layout { padding-block: 13px; }
 .is-lecture.is-projecting .teacher-lecture { gap: 8px; }
 .is-joining .topbar-inner, .is-projecting .topbar-inner { grid-template-columns: 1fr auto; grid-template-rows: minmax(59px, auto); }
@@ -236,6 +237,12 @@ a { color: inherit; }
 .modal-heading h2 { font-size: 18px; letter-spacing: -.045em; }
 .modal-actions { justify-content: flex-end; border-top: 1px solid var(--line); }
 .modal-body { display: grid; gap: 7px; padding: 16px 18px; }
+.lecture-qr-modal { width: min(570px, calc(100% - 28px)); }
+.lecture-qr-body { gap: 12px; justify-items: center; text-align: center; }
+#lecture-qr-image { display: block; width: min(100%, 490px, 64dvh); height: auto; image-rendering: pixelated; }
+.lecture-qr-modal .modal-actions { flex-wrap: wrap; justify-content: center; }
+.lecture-qr-modal .modal-actions a { text-decoration: none; }
+#lecture-qr-copy-status:not(:empty) { flex-basis: 100%; text-align: center; }
 .question-form-body { gap: 13px; }
 .question-source-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 10px; }
 .hosted-login { display: grid; gap: 8px; padding-bottom: 14px; margin-bottom: 7px; border-bottom: 1px solid var(--line); }

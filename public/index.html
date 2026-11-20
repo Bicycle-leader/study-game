@@ -94,7 +94,8 @@
       </div>
       <p class="lecture-loading" id="teacher-lecture-status" role="status">강의 내용을 불러오는 중입니다.</p>
       <div id="teacher-lecture-slide" aria-live="polite"></div>
-      <div class="lecture-actions" aria-label="강의 페이지 이동">
+      <div class="lecture-actions" aria-label="강의 진행">
+        <button class="button qr-button" id="show-lecture-qr" type="button" aria-haspopup="dialog" disabled><svg class="icon" aria-hidden="true"><use href="#i-qr"/></svg>강의 QR</button>
         <button class="button button-secondary" id="lecture-previous" type="button" disabled><span aria-hidden="true">‹</span> 이전 페이지</button>
         <button class="button button-primary" id="lecture-next" type="button" disabled>다음 페이지 <span aria-hidden="true">›</span></button>
       </div>
@@ -221,6 +222,23 @@
       <div id="participant-list" class="secondary-list"></div>
     </section>
   </main>
+
+  <dialog class="modal lecture-qr-modal" id="lecture-qr-dialog" aria-labelledby="lecture-qr-heading" aria-describedby="lecture-qr-note">
+    <div class="modal-heading">
+      <h2 id="lecture-qr-heading">강의 보기 QR</h2>
+      <button class="icon-button" id="close-lecture-qr" type="button" aria-label="강의 QR 닫기" autofocus><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="modal-body lecture-qr-body">
+      <p id="lecture-qr-note">휴대폰 카메라로 QR 코드를 찍어 강의를 보세요.</p>
+      <img id="lecture-qr-image" alt="학생용 강의 보기 링크의 QR 코드" hidden>
+      <p class="form-error" id="lecture-qr-error" role="alert" hidden>QR 코드를 표시할 수 없습니다. 아래 링크를 열어 주세요.</p>
+    </div>
+    <div class="modal-actions">
+      <a class="button button-secondary" id="lecture-qr-view-link" target="_blank" rel="noopener noreferrer">강의 보기 링크 열기 <span aria-hidden="true">↗</span></a>
+      <button class="button button-secondary" id="copy-lecture-qr-link" type="button">강의 보기 링크 복사</button>
+      <p class="field-help" id="lecture-qr-copy-status" role="status"></p>
+    </div>
+  </dialog>
 
   <dialog class="modal" id="login-dialog" aria-labelledby="login-heading">
     <form id="login-form">

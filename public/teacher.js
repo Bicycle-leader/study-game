@@ -34,6 +34,7 @@ let lectureRenderer;
 let lectureLoading = false;
 let lectureLoadFailed = false;
 let renderedLecturePage = null;
+let renderedLectureQrUrl;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -164,6 +165,7 @@ function syncControls() {
     'lecture-jump': { disabled: busy || lectureIndex === null },
     'lecture-previous': { disabled: busy || lectureIndex === null || lectureIndex === 0 },
     'lecture-next': { disabled: busy || lectureIndex === null || lectureIndex === lecturePages.length - 1 },
+    'show-lecture-qr': { disabled: !state?.lectureUrl },
     'copy-lecture-link': { disabled: !state?.lectureUrl },
     'toggle-question-management': { disabled: busy || !state, hidden: presenting },
     'bank-panel': { hidden: !managing },
@@ -517,6 +519,7 @@ function showLogin(message = '') {
   closeQuestionDialog();
   closeEssayTimeDialog();
   $('reset-dialog').close();
+  $('lecture-qr-dialog').close();
   const dialog = $('login-dialog');
   if (dialog && !dialog.open) dialog.showModal();
 }
@@ -584,6 +587,7 @@ async function loadState() {
         closeQuestionDialog();
         closeEssayTimeDialog();
         $('reset-dialog').close();
+        $('lecture-qr-dialog').close();
       }
       setConnection('offline');
     }
@@ -842,7 +846,7 @@ async function gradeEssayEntry(event) {
   }
 }
 
-async function copy(value, label) {
+async function copy(value, label, onCopied = showToast) {
   if (!value) return;
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -854,14 +858,14 @@ async function copy(value, label) {
       field.readOnly = true;
       field.style.position = 'fixed';
       field.style.opacity = '0';
-      document.body.append(field);
+      (active?.closest('dialog[open]') || document.body).append(field);
       field.select();
       const copied = document.execCommand('copy');
       field.remove();
       active?.focus();
       if (!copied) throw new Error('copy failed');
     }
-    showToast(`${label} 복사 완료`);
+    onCopied(`${label} 복사 완료`);
   } catch {
     window.prompt(`${label}을 복사해 주세요.`, value);
   }
@@ -878,6 +882,37 @@ function lectureViewerUrl() {
   return window.location.protocol === 'https:' ? new URL(url.pathname + url.search, window.location.origin).href : url.href;
 }
 
+function qrImageUrl(url) {
+  const qr = window.qrcode(0, 'M');
+  qr.addData(url);
+  qr.make();
+  // Keep the four-module white border so phone cameras can find the symbol.
+  return qr.createDataURL(10, 40);
+}
+
+function renderLectureQr(viewerUrl) {
+  if (!viewerUrl) {
+    $('lecture-qr-dialog').close();
+    return;
+  }
+  if (renderedLectureQrUrl === viewerUrl) return;
+
+  const image = $('lecture-qr-image');
+  const error = $('lecture-qr-error');
+  $('lecture-qr-view-link').href = viewerUrl;
+  try {
+    image.src = qrImageUrl(viewerUrl);
+    image.hidden = false;
+    error.hidden = true;
+    renderedLectureQrUrl = viewerUrl;
+  } catch {
+    image.removeAttribute('src');
+    image.hidden = true;
+    error.hidden = false;
+    renderedLectureQrUrl = undefined;
+  }
+}
+
 function renderLecture() {
   const index = currentLecturePage();
   const slide = $('teacher-lecture-slide');
@@ -887,6 +922,7 @@ function renderLecture() {
   viewerLink.hidden = !viewerUrl;
   if (viewerUrl) viewerLink.href = viewerUrl;
   else viewerLink.removeAttribute('href');
+  if ($('lecture-qr-dialog').open) renderLectureQr(viewerUrl);
 
   status.hidden = index !== null;
   if (index === null) {
@@ -970,11 +1006,7 @@ function renderJoinQr() {
   if (renderedQrUrl === joinUrl) return;
 
   try {
-    const qr = window.qrcode(0, 'M');
-    qr.addData(joinUrl);
-    qr.make();
-    // Keep the four-module white border so phone cameras can find the symbol.
-    image.src = qr.createDataURL(10, 40);
+    image.src = qrImageUrl(joinUrl);
     image.hidden = false;
     error.hidden = true;
     renderedQrUrl = joinUrl;
@@ -1028,6 +1060,7 @@ function setJoinScreen(active, focus = true) {
 }
 
 function setClassMode(mode, focus = true) {
+  if (mode !== 'lecture') $('lecture-qr-dialog').close();
   classMode = mode;
   setJoinScreen(true, false);
   if (classMode === 'lecture') void loadLectureResources();
@@ -1046,6 +1079,16 @@ listen('lecture-previous', 'click', () => changeLecturePage(currentLecturePage()
 listen('lecture-next', 'click', () => changeLecturePage(currentLecturePage() + 1));
 listen('lecture-jump', 'change', (event) => changeLecturePage(Number(event.currentTarget.value)));
 listen('copy-lecture-link', 'click', () => copy(lectureViewerUrl(), '강의 보기 링크'));
+listen('show-lecture-qr', 'click', () => {
+  const dialog = $('lecture-qr-dialog');
+  const viewerUrl = lectureViewerUrl();
+  if (classMode !== 'lecture' || !viewerUrl || dialog.open) return;
+  setText('lecture-qr-copy-status', '');
+  renderLectureQr(viewerUrl);
+  dialog.showModal();
+});
+listen('close-lecture-qr', 'click', () => $('lecture-qr-dialog').close());
+listen('copy-lecture-qr-link', 'click', () => copy(lectureViewerUrl(), '강의 보기 링크', (message) => setText('lecture-qr-copy-status', message)));
 
 listen('login-dialog', 'cancel', (event) => event.preventDefault());
 listen('login-form', 'submit', async (event) => {
