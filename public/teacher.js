@@ -961,7 +961,7 @@ function renderLecture() {
         group.label = page.chapter;
         chapters.set(page.chapter, group);
       }
-      const option = el('option', '', page.title);
+      const option = el('option', '', page.label ? `${page.label} · ${page.title}` : page.title);
       option.value = String(index);
       chapters.get(page.chapter).append(option);
     });
