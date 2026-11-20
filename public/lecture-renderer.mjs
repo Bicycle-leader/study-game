@@ -17,7 +17,8 @@ export function renderLectureSlide(container, page, pageIndex, totalPages) {
   if (page.label) location.append(element('span', 'lecture-topic-label', page.label));
   heading.append(location, title);
 
-  const progress = element('p', 'lecture-progress', `${pageIndex + 1} / ${totalPages}쪽`);
+  const progress = element('p', 'lecture-progress');
+  progress.append(element('strong', 'lecture-current-page', String(pageIndex + 1)), ` / ${totalPages}쪽`);
   header.append(heading, progress);
   article.append(header);
 

@@ -1,5 +1,5 @@
 import assets from './assets.mjs';
-import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readLectureState, readStudentState, readTeacherState, settleQuizTimer } from './quiz-engine.mjs';
+import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readLectureState, readStudentState, readTeacherState, settleQuizTimer, upgradeQuizState } from './quiz-engine.mjs';
 
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
@@ -198,9 +198,9 @@ async function runQuizOperation(db, operation) {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const { version, state } = await loadQuiz(db);
     const now = Date.now();
-    const settled = settleQuizTimer(state, now);
+    const settled = settleQuizTimer(upgradeQuizState(state), now);
     if (settled !== state) {
-      // Commit the timer change first, including when the requested action will be rejected.
+      // Persist the bank upgrade or timer transition even if the requested action is rejected.
       if (await updateQuiz(db, version, settled)) continue;
     } else {
       const response = await operation({ state, version, now });

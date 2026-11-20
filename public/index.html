@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f2f8fd">
+  <meta name="theme-color" content="#172b43">
   <title>지적학 · 강사 대시보드</title>
   <meta name="description" content="지적학 강의를 발표하고 실시간 퀴즈를 진행하는 강사 대시보드">
   <link rel="icon" type="image/png" href="/assets/jijeok-mark.png">
@@ -58,21 +58,27 @@
       <div class="hero mode-hero">
         <div class="hero-copy">
           <h1 id="mode-heading" tabindex="-1">지적학 수업</h1>
-          <p class="hero-description">수업 진행 방식을 선택하세요.</p>
+          <p class="hero-description">강의 슬라이드로 개념을 짚고,<br>실시간 퀴즈로 이해도를 확인하세요.</p>
         </div>
+        <figure class="cover-map">
+          <img src="/assets/cadastral-map.png" alt="지번이 적힌 필지들이 경계선으로 나뉜 지적도 모식도" width="1090" height="360">
+          <figcaption>필지 경계와 지번</figcaption>
+        </figure>
       </div>
       <div class="mode-options">
         <button class="mode-card" id="select-quiz-mode" type="button" disabled>
           <span class="mode-icon"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg></span>
+          <span class="mode-meta" id="home-exam-meta">5지선다</span>
           <strong>지적학 퀴즈</strong>
-          <span class="mode-description">학생이 QR로 참여하고, 강사가 연 문항에 답안을 제출합니다.</span>
-          <span class="mode-action">퀴즈 시작 <span aria-hidden="true">→</span></span>
+          <span class="mode-description">기본 개념부터 사례 문제까지, 학생 답안을 실시간으로 집계합니다.</span>
+          <span class="mode-action">퀴즈 시작</span>
         </button>
         <button class="mode-card" id="select-lecture-mode" type="button" disabled>
           <span class="mode-icon lecture-mode-icon"><svg class="icon" aria-hidden="true"><use href="#i-paper"/></svg></span>
+          <span class="mode-meta">31개 주제 · 62페이지</span>
           <strong>지적학 강의</strong>
-          <span class="mode-description">강사가 강의 자료를 넘기면 학생은 같은 페이지를 봅니다.</span>
-          <span class="mode-action">강의 열기 <span aria-hidden="true">→</span></span>
+          <span class="mode-description">개념 설명과 도해를 함께 보며 학생과 같은 페이지에서 수업합니다.</span>
+          <span class="mode-action">강의 열기</span>
         </button>
       </div>
     </section>
@@ -142,7 +148,6 @@
 
     <section class="hero" id="class-hero" aria-labelledby="class-heading" hidden>
       <div class="hero-copy">
-        <p class="hero-eyebrow"><span aria-hidden="true"></span>실시간 강의실</p>
         <h1 id="class-heading">지적학 퀴즈</h1>
         <p class="hero-description">링크나 수업 코드를 공유하고 학생들의 답안을 받아보세요.</p>
       </div>
@@ -201,6 +206,10 @@
           <p class="question-source" id="question-source" hidden><span id="question-source-group"></span><span id="question-source-chapter"></span><span id="question-source-topic"></span></p>
           <h3 id="question-title">수업을 불러오는 중입니다.</h3>
           <div class="question-options" id="question-options"></div>
+          <div class="question-explanation" id="question-explanation" hidden>
+            <strong>정답 해설</strong>
+            <p id="explanation-text"></p>
+          </div>
         </div>
         <div class="question-actions">
           <button class="button button-primary" type="button" id="next-question" disabled><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>다음 문제 열기</button>

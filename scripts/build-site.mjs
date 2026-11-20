@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const publicDirectory = path.join(root, 'public');
 const lectureImageDirectory = path.join(publicDirectory, 'assets', 'lecture');
 const serverDirectory = path.join(root, 'dist', 'server');
-const lecturePageCountSource = /^import \{ lecturePages \} from '\.\/public\/lecture-content\.mjs';\r?\n\r?\nconst lecturePageCount = lecturePages\.length;/;
+const lectureImport = "import { lecturePages } from './public/lecture-content.mjs';";
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -45,11 +45,12 @@ const [assets, engine] = await Promise.all([
   bundleAssets(publicDirectory),
   readFile(path.join(root, 'quiz-engine.mjs'), 'utf8'),
 ]);
-if (!lecturePageCountSource.test(engine) || !Array.isArray(lecturePages) || lecturePages.length === 0) {
-  throw new Error('Cannot bundle the lecture page count.');
+if (!engine.includes(lectureImport) || !lecturePages.length) {
+  throw new Error('Cannot bundle the lecture topic index.');
 }
-// The browser lesson is served from assets.mjs. The Worker engine only needs its page count.
-const builtEngine = engine.replace(lecturePageCountSource, `const lecturePageCount = ${lecturePages.length};`);
+// Keep the full slides in browser assets. The quiz only uses their positions and topic labels.
+const lectureIndex = lecturePages.map(({ label, chapter, title, image }) => image ? { image: true } : { label, chapter, title });
+const builtEngine = engine.replace(lectureImport, () => `const lecturePages = ${JSON.stringify(lectureIndex)};`);
 await Promise.all([
   copyFile(path.join(root, 'worker', 'site.mjs'), path.join(serverDirectory, 'index.js')),
   writeFile(path.join(serverDirectory, 'quiz-engine.mjs'), builtEngine),

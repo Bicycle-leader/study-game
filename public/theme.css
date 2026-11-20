@@ -1,8 +1,11 @@
 :root {
   color-scheme: light;
-  --sky-canvas: #f2f8fd;
-  --sky-soft: #dcecfb;
-  --sky-accent: #2868b3;
-  --sky-slate: #476989;
-  --sky-ink: #17385e;
+  --canvas: #f6f5f0;
+  --surface: #fff;
+  --ink: #172b43;
+  --accent: #006b66;
+  --accent-soft: #e3efea;
+  --muted: #52646a;
+  --line: #cbd5d2;
+  --font-sans: 'Pretendard', 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', 'Inter', system-ui, sans-serif;
 }

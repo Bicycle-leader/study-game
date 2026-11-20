@@ -4,7 +4,6 @@ const kindLabels = { multiple: '객관식', short: '단답형', essay: '서술�
 const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '접수 마감' };
 const defaultEssaySeconds = 120;
 const warmupCategory = '기초학습';
-const optionMarkers = ['A', 'B', 'C', 'D', 'E', 'F'];
 const multipleOptionCount = 5;
 const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, pendingCount: 0, optionCounts: [] };
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
@@ -105,8 +104,16 @@ function formatDate(value) {
 function scopedQuestions() {
   const questions = state?.questions || [];
   if (!Array.isArray(state?.scopeQuestionIds)) return questions;
-  const ids = new Set(state.scopeQuestionIds);
-  return questions.filter(({ id }) => ids.has(id));
+  const byId = new Map(questions.map((question) => [question.id, question]));
+  return state.scopeQuestionIds.map((id) => byId.get(id)).filter(Boolean);
+}
+
+function questionKind(question) {
+  return [kindLabels[question.type], question.difficulty].filter(Boolean).join(' · ');
+}
+
+function examQuestionCount(questions) {
+  return questions.filter(({ type, examNumber }) => type === 'multiple' && Number.isInteger(examNumber)).length;
 }
 
 function selectedQuestion() {
@@ -227,8 +234,9 @@ function renderScope() {
 
   const select = $('question-scope');
   const { scope, questions } = state;
+  const examTotal = examQuestionCount(questions);
   const sources = questions.map(({ category, chapter, topic }) => [category, chapter, topic]);
-  renderList('question-scope', sources, () => {
+  renderList('question-scope', [examTotal, sources], () => {
     const chapters = new Map();
     let warmupTotal = 0;
     for (const [category, sourceChapter, topic] of sources) {
@@ -244,7 +252,9 @@ function renderScope() {
       if (topic) entry.topics.set(topic, (entry.topics.get(topic) || 0) + 1);
     }
 
-    const options = [scopeOption({ kind: 'all' }, '전체 문제', questions.length)];
+    const options = [];
+    if (examTotal) options.push(scopeOption({ kind: 'exam' }, '객관식 시험', examTotal));
+    options.push(scopeOption({ kind: 'all' }, '전체 문제', questions.length));
     if (warmupTotal) options.push(scopeOption({ kind: 'warmup' }, warmupCategory, warmupTotal));
     if (!chapters.size) return options;
 
@@ -279,12 +289,13 @@ function renderScope() {
 function renderQuestionList() {
   const { activeQuestionId, stage } = state;
   const questions = scopedQuestions();
-  const signature = managing ? [questions, selectedId, activeQuestionId, stage] : null;
+  const signature = managing ? [state.scope?.kind, questions, selectedId, activeQuestionId, stage] : null;
   renderList('question-list', signature, () => {
     if (!managing) return [];
     if (!questions.length) return [empty('표시할 문항이 없습니다', '출제 범위를 바꾸거나 새 문제를 만들어 보세요.')];
 
-    const categorized = questions.some((question) => question.category);
+    const exam = state.scope?.kind === 'exam';
+    const categorized = !exam && questions.some((question) => question.category);
     const groups = new Map();
     const items = [];
     for (const question of questions) {
@@ -297,12 +308,12 @@ function renderQuestionList() {
       button.classList.toggle('is-live', isLive);
       button.setAttribute('aria-pressed', String(isSelected));
       const content = el('span', 'question-item-copy');
-      content.append(el('span', 'question-item-kind', kindLabels[question.type]));
+      content.append(el('span', 'question-item-kind', questionKind(question)));
       const chapter = question.chapter !== question.category ? question.chapter : '';
       const source = [chapter, question.topic].filter(Boolean).join(' · ');
       if (source) content.append(el('span', 'question-item-source', source));
       content.append(el('strong', 'question-item-title', question.title));
-      const number = state.questions.indexOf(question) + 1;
+      const number = exam ? question.examNumber : state.questions.indexOf(question) + 1;
       button.append(el('span', 'question-item-number', String(number).padStart(2, '0')), content);
       if (isLive) button.append(el('span', 'question-item-live', '진행 중'));
       if (!categorized) {
@@ -324,15 +335,19 @@ function renderQuestionList() {
 }
 
 function renderQuestion() {
-  const question = managing ? selectedQuestion() : releasedQuestion();
+  const upcoming = !managing && !presenting && state?.stage === 'waiting' ? nextQuestion() : null;
+  const question = managing ? selectedQuestion() : releasedQuestion() || upcoming;
   const stage = question ? state.stage : 'waiting';
   const questionStage = question && question.id !== state.activeQuestionId ? 'preview' : stage;
-  const index = question ? state.questions.indexOf(question) + 1 : null;
-  setText('current-question-number', index === null ? '' : `문항 ${String(index).padStart(2, '0')}`);
+  const exam = question && state.scope?.kind === 'exam' && Number.isInteger(question.examNumber);
+  const index = question && (exam ? question.examNumber : state.questions.indexOf(question) + 1);
+  const progress = exam && question.examNumber === state.scopeQuestionIds.indexOf(question.id) + 1
+    ? ` / ${state.scopeQuestionIds.length}` : '';
+  setText('current-question-number', index ? `문항 ${String(index).padStart(2, '0')}${progress}` : '');
   setText('question-title', question?.title || (managing ? '문항을 선택해 주세요' : '아직 열린 문제가 없습니다'));
-  setText('question-kind', question ? kindLabels[question.type] : '');
+  setText('question-kind', question ? questionKind(question) : '');
   const allSubmitted = questionStage === 'closed' && state.closeReason === 'all-submitted';
-  setText('question-state', allSubmitted ? '접수 마감 · 전원 제출' : stageLabels[questionStage] || '미리 보기');
+  setText('question-state', upcoming ? '다음 출제 문항' : allSubmitted ? '접수 마감 · 전원 제출' : stageLabels[questionStage] || '미리 보기');
   const chapter = question?.chapter || question?.category;
   const group = question?.category !== chapter ? question?.category : '';
   const topic = !presenting || questionStage === 'closed' ? question?.topic : '';
@@ -344,6 +359,9 @@ function renderQuestion() {
   if (badge) badge.dataset.stage = questionStage;
 
   const showKey = !presenting || questionStage === 'closed';
+  const explanation = showKey ? question?.explanation : '';
+  $('question-explanation').hidden = !explanation;
+  setText('explanation-text', explanation || '');
   renderList('question-options', [question, showKey], () => {
     if (!question || question.type === 'essay') return [];
     const isShort = question.type === 'short';
@@ -353,7 +371,7 @@ function renderQuestion() {
       const isCorrect = showKey && (isShort || index === question.correctIndex);
       const row = el('div', 'question-option');
       row.classList.toggle('is-correct', isCorrect);
-      const marker = el('span', 'option-marker', isShort ? '✓' : (optionMarkers[index] || index + 1));
+      const marker = el('span', 'option-marker', isShort ? '✓' : index + 1);
       if (isShort) marker.setAttribute('aria-hidden', 'true');
       row.append(marker, el('span', 'option-text', answer));
       if (isCorrect) row.append(el('span', 'option-key', '정답'));
@@ -487,6 +505,8 @@ function render() {
   }
   if (essaySession && !hasClosedEssay(essaySession.questionId)) closeEssayDialog();
   document.body.dataset.stage = state.stage;
+  const examCount = examQuestionCount(state.questions);
+  setText('home-exam-meta', examCount ? `5지선다 · ${examCount}문항` : '실시간 응답');
   setText('room-code', state.roomCode);
   setText('metric-participants', `${state.participants.length}명`);
   setText('metric-total-questions', `${state.scope && state.scope.kind !== 'all' ? '범위' : '전체'} ${scoped.length}문항`);
@@ -1163,8 +1183,10 @@ listen('question-form', 'submit', async (event) => {
 
   const submit = form.querySelector('[type="submit"]');
   if (submit) submit.disabled = true;
+  const outsideExam = state?.scope?.kind === 'exam' && (!editingId || question.type !== 'multiple');
+  const savedMessage = editingId ? '문항을 수정했습니다.' : '문항을 추가했습니다.';
   await mutate('questions', question, {
-    message: editingId ? '문항을 수정했습니다.' : '문항을 추가했습니다.',
+    message: outsideExam ? `${savedMessage} ‘전체 문제’에서 확인할 수 있습니다.` : savedMessage,
     after: ({ question }) => {
       selectedId = question.id;
       closeQuestionDialog();

@@ -3,7 +3,8 @@ const ui = Object.fromEntries([
   'question-topic-row', 'question-topic', 'intro', 'join-form', 'room-code', 'nickname',
   'join-button', 'notice', 'notice-icon', 'notice-text', 'retry-button', 'answer-form',
   'choices', 'short-field', 'short-answer', 'essay-field', 'essay-answer', 'answer-button', 'answer-result', 'result-badge',
-  'result-details', 'form-error', 'live-update', 'student-name', 'question-timer', 'timer-status', 'countdown'
+  'result-details', 'form-error', 'live-update', 'student-name', 'question-timer', 'timer-status', 'countdown',
+  'quiz-layout', 'cover-map'
 ].map(id => [id, document.getElementById(id)]));
 
 const roomParameter = new URLSearchParams(window.location.search).get('code')?.trim().toUpperCase();
@@ -128,6 +129,7 @@ function showResult(question, response, closed) {
       ? answerText(question, question.correctIndex)
       : question.acceptedAnswers?.join(' 또는 ') ?? '—';
     ui['result-details'].append(resultRow('정답', correct));
+    if (question.explanation) ui['result-details'].append(resultRow('해설', question.explanation));
   }
   return message;
 }
@@ -226,10 +228,13 @@ function render() {
   const response = state?.response;
   const takingAnswers = state?.stage === 'open' && !response;
 
+  ui['quiz-layout'].classList.toggle('has-question', Boolean(question));
+  ui['cover-map'].hidden = Boolean(question);
   ui['join-form'].hidden = inRoom;
   ui['room-label'].hidden = !inRoom;
   ui['room-label'].textContent = inRoom ? `코드 ${session.roomCode}` : '';
-  ui['student-name'].textContent = inRoom ? `참여 중 · ${session.nickname}` : '수업용 실시간 퀴즈';
+  ui['student-name'].hidden = !inRoom;
+  ui['student-name'].textContent = inRoom ? session.nickname : '';
   ui['answer-form'].hidden = !question || !takingAnswers;
   ui['answer-result'].hidden = !question || (!closed && !response);
   showNotice('', '');
@@ -262,7 +267,9 @@ function render() {
   } else {
     const multiple = question.type === 'multiple';
     const essay = question.type === 'essay';
-    ui['panel-label'].textContent = multiple ? '객관식 문제' : essay ? '서술형 문제' : '단답형 문제';
+    const type = multiple ? '객관식' : essay ? '서술형' : '단답형';
+    const label = Number.isInteger(question.examNumber) ? `${type} ${question.examNumber}번` : `${type} 문제`;
+    ui['panel-label'].textContent = question.difficulty ? `${label} · ${question.difficulty}` : label;
     ui['page-title'].textContent = question.title;
     ui.choices.hidden = !multiple;
     ui['short-field'].hidden = multiple || essay;

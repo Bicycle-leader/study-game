@@ -30,7 +30,7 @@ const mimeTypes = {
 
 async function main() {
   const {
-    ApiError, createQuizState, readTeacherState, readStudentState, readLectureState, readEssayReview, applyQuizMutation, settleQuizTimer,
+    ApiError, createQuizState, upgradeQuizState, readTeacherState, readStudentState, readLectureState, readEssayReview, applyQuizMutation, settleQuizTimer,
   } = await import('./quiz-engine.mjs');
   const quizContext = {
     randomHex: (length) => crypto.randomBytes(length).toString('hex'),
@@ -39,7 +39,7 @@ async function main() {
 
   function loadState() {
     try {
-      return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+      return upgradeQuizState(JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')));
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       return createQuizState(quizContext);
