@@ -3,7 +3,7 @@ const seedQuestions = [
     id: 'parcel-number',
     type: 'multiple',
     title: '토지의 위치를 특정하기 위해 필지마다 부여하는 번호는 무엇인가요?',
-    options: ['지목', '지번', '경계점', '축척'],
+    options: ['지목', '지번', '경계점', '축척', '면적'],
     correctIndex: 1,
     acceptedAnswers: [],
   },
@@ -19,7 +19,7 @@ const seedQuestions = [
     id: 'map-scale',
     type: 'multiple',
     title: '축척이 1:1,000인 지적도에서 도면 위의 1cm는 실제 거리로 몇 m인가요?',
-    options: ['1 m', '10 m', '100 m', '1,000 m'],
+    options: ['1 m', '10 m', '100 m', '1,000 m', '0.1 m'],
     correctIndex: 1,
     acceptedAnswers: [],
   },
@@ -28,6 +28,7 @@ const standardAnswerSeconds = 30;
 const defaultEssaySeconds = 120;
 const maxEssaySeconds = 900;
 const essayLimit = 2_000;
+const multipleChoiceCount = 5;
 const warmupCategory = '기초학습';
 const defaultQuestionScope = { kind: 'all' };
 
@@ -256,7 +257,7 @@ function selectQuestionScope(state, body) {
   return accepted({ ...state, scope, scopeLastQuestionId: null });
 }
 
-function validateQuestion(body) {
+function validateQuestion(body, { allowLegacyChoices = false } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, '문제의 형식을 확인해 주세요.');
   const title = cleanText(body.title, 250, '문제를 1~250자로 입력해 주세요.');
   const question = { type: body.type, title, options: [], correctIndex: null, acceptedAnswers: [] };
@@ -265,7 +266,10 @@ function validateQuestion(body) {
     if (value) question[key] = value;
   }
   if (body.type === 'multiple') {
-    if (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 6) {
+    if (!allowLegacyChoices && (!Array.isArray(body.options) || body.options.length !== multipleChoiceCount)) {
+      throw new ApiError(400, '객관식 보기를 5개 입력해 주세요.');
+    }
+    if (allowLegacyChoices && (!Array.isArray(body.options) || body.options.length < 2 || body.options.length > 6)) {
       throw new ApiError(400, '객관식 보기를 2~6개 입력해 주세요.');
     }
     const options = body.options.map((option) => cleanText(option, 100, '각 보기를 1~100자로 입력해 주세요.'));
@@ -329,6 +333,39 @@ function updateQuestionSources(state, { sources }) {
   return accepted(questions.every((question, index) => question === state.questions[index]) ? state : { ...state, questions });
 }
 
+function extendQuestionChoices(state, { updates }) {
+  if (!Array.isArray(updates) || !updates.length) {
+    throw new ApiError(400, '보기를 추가할 객관식 문항을 입력해 주세요.');
+  }
+  const revisions = new Map();
+  for (const update of updates) {
+    if (!update || typeof update.id !== 'string' || revisions.has(update.id)) {
+      throw new ApiError(400, '각 문항의 보기 변경은 한 번만 입력해 주세요.');
+    }
+    const question = requiredQuestion(state, update.id);
+    if (question.type !== 'multiple' || question.title !== update.title) {
+      throw new ApiError(409, '문항이 변경되었습니다. 기존 문제를 다시 확인해 주세요.');
+    }
+    const { options } = validateQuestion({ ...question, options: update.options });
+    if (question.options.length > options.length || !question.options.every((option, index) => option === options[index])) {
+      throw new ApiError(409, '기존 보기의 내용과 순서를 유지해 주세요.');
+    }
+    if (question.options.length === options.length) {
+      revisions.set(question.id, question);
+      continue;
+    }
+    if (state.stage === 'open' && state.activeQuestionId === question.id) {
+      throw new ApiError(409, '해당 문항의 접수가 마감된 뒤 보기를 추가해 주세요.');
+    }
+    revisions.set(question.id, { ...question, options });
+  }
+  const questions = state.questions.map((question) => revisions.get(question.id) ?? question);
+  if (questions.every((question, index) => question === state.questions[index])) return accepted(state);
+  // Resolve older result entries before the additional choices become part of the bank.
+  const history = (state.history || []).map((entry) => revisions.has(entry.questionId) ? readHistoryEntry(state, entry) : entry);
+  return accepted({ ...state, questions, history });
+}
+
 function closeQuestion(state, closedAt, reason) {
   if (state.stage === 'closed') return state;
   if (state.stage !== 'open') throw new ApiError(409, '채점할 문제가 열려 있지 않습니다.');
@@ -367,7 +404,7 @@ function replaceQuestions(state, body, { now, randomUUID }) {
   if (!Array.isArray(body.questions) || body.questions.length === 0) {
     throw new ApiError(400, '교체할 문제를 한 개 이상 입력해 주세요.');
   }
-  const definitions = body.questions.map(validateQuestion);
+  const definitions = body.questions.map((question) => validateQuestion(question, { allowLegacyChoices: true }));
   const storedByDefinition = new Map();
   for (const question of state.questions) {
     const key = questionDefinition(question);
@@ -453,11 +490,16 @@ export function settleQuizTimer(state, now = Date.now()) {
   return closeIfEveryoneSubmitted(state, now);
 }
 
-function resetRoom(state, randomHex) {
-  let roomCode;
-  do {
-    roomCode = createRoomCode(randomHex);
-  } while (roomCode === state.roomCode);
+function resetRoom(state, randomHex, keepRoomCode = false) {
+  if (typeof keepRoomCode !== 'boolean') {
+    throw new ApiError(400, '참여 링크 유지 여부를 확인해 주세요.');
+  }
+  let roomCode = state.roomCode;
+  if (!keepRoomCode) {
+    do {
+      roomCode = createRoomCode(randomHex);
+    } while (roomCode === state.roomCode);
+  }
   return {
     roomCode,
     questions: state.questions,
@@ -547,6 +589,8 @@ export function applyQuizMutation(state, action, body, context) {
       return saveQuestion(state, body, context.randomUUID);
     case 'question-sources':
       return updateQuestionSources(state, body);
+    case 'extend-choices':
+      return extendQuestionChoices(state, body);
     case 'replace-questions':
       return replaceQuestions(state, body, { now, randomUUID: context.randomUUID });
     case 'essay-grade':
@@ -585,7 +629,7 @@ export function applyQuizMutation(state, action, body, context) {
       requireClosedCollection(state);
       return accepted({ ...state, stage: 'waiting', closesAt: null });
     case 'reset':
-      return accepted(resetRoom(state, context.randomHex));
+      return accepted(resetRoom(state, context.randomHex, body.keepRoomCode));
     case 'join':
       return joinRoom(state, body, context);
     case 'answer':

@@ -46,6 +46,7 @@
       </nav>
       <div class="top-controls">
         <span class="connection-status" id="connection-status" role="status"><span class="connection-dot" aria-hidden="true"></span><span id="connection-label">연결 중</span></span>
+        <button class="button reset-class-button" id="reset-class" type="button" aria-haspopup="dialog" disabled hidden>수업 초기화</button>
         <button class="button fullscreen-button" id="fullscreen" type="button" aria-label="발표 화면" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-expand"/></svg><span id="fullscreen-label">발표 화면</span></button>
       </div>
     </div>
@@ -163,7 +164,6 @@
         <h2 id="history-heading">응답 기록</h2>
         <div class="history-actions">
           <button class="button button-primary" id="download-history" type="button" aria-describedby="history-download-note" disabled>엑셀 다운로드</button>
-          <button class="button button-secondary" id="reset-class" type="button" disabled>새 수업 시작</button>
         </div>
         <p class="field-help history-download-note" id="history-download-note" hidden>서술형 답안을 모두 채점한 뒤 엑셀로 다운로드할 수 있습니다.</p>
       </div>
@@ -192,6 +192,22 @@
     </form>
   </dialog>
 
+  <dialog class="modal" id="reset-dialog" aria-labelledby="reset-heading" aria-describedby="reset-note">
+    <form id="reset-form">
+      <div class="modal-heading"><h2 id="reset-heading">수업 초기화</h2></div>
+      <div class="modal-body">
+        <p id="reset-note">참여 학생, 제출 답안과 응답 기록을 삭제합니다. 저장한 문제와 서술형 제한시간은 유지됩니다. 학생은 다시 참여해야 합니다.</p>
+        <fieldset class="reset-link-options" id="reset-link-options">
+          <legend>참여 QR과 링크</legend>
+          <label><input type="radio" name="reset-link" value="keep" checked> 현재 링크 유지</label>
+          <label><input type="radio" name="reset-link" value="new"> 새 링크 만들기</label>
+        </fieldset>
+        <p class="form-error" id="reset-error" role="alert"></p>
+      </div>
+      <div class="modal-actions"><button class="button button-secondary" id="cancel-reset" type="button" autofocus>취소</button><button class="button button-danger" id="confirm-reset" type="submit">초기화</button></div>
+    </form>
+  </dialog>
+
   <dialog class="modal" id="question-dialog" aria-labelledby="question-dialog-title">
     <form id="question-form">
       <div class="modal-heading"><h2 id="question-dialog-title">새 문제 만들기</h2><button class="icon-button" type="button" data-dismiss aria-label="닫기"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
@@ -204,11 +220,13 @@
         </div>
         <fieldset id="multiple-fields" class="option-fields">
           <legend>선택지와 정답</legend>
-          <p class="field-help">선택지를 2개 이상 입력하고 정답을 선택하세요.</p>
+          <p class="field-help" id="multiple-option-help">보기 5개를 입력하고 정답 하나를 선택하세요.</p>
           <div class="option-field"><input type="radio" name="correct-index" value="0" aria-label="1번을 정답으로 지정" checked><input type="text" data-option maxlength="100" placeholder="선택지 1" aria-label="선택지 1"></div>
           <div class="option-field"><input type="radio" name="correct-index" value="1" aria-label="2번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 2" aria-label="선택지 2"></div>
-          <div class="option-field"><input type="radio" name="correct-index" value="2" aria-label="3번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 3 (선택 사항)" aria-label="선택지 3"></div>
-          <div class="option-field"><input type="radio" name="correct-index" value="3" aria-label="4번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 4 (선택 사항)" aria-label="선택지 4"></div>
+          <div class="option-field"><input type="radio" name="correct-index" value="2" aria-label="3번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 3" aria-label="선택지 3"></div>
+          <div class="option-field"><input type="radio" name="correct-index" value="3" aria-label="4번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 4" aria-label="선택지 4"></div>
+          <div class="option-field"><input type="radio" name="correct-index" value="4" aria-label="5번을 정답으로 지정"><input type="text" data-option maxlength="100" placeholder="선택지 5" aria-label="선택지 5"></div>
+          <div class="option-field" id="legacy-option-field" hidden><input type="radio" name="correct-index" value="5" aria-label="6번을 정답으로 지정" disabled><input type="text" data-option maxlength="100" placeholder="선택지 6" aria-label="선택지 6" disabled></div>
         </fieldset>
         <div class="field" id="short-fields" hidden><label for="accepted-answers">인정 정답</label><textarea id="accepted-answers" rows="3" placeholder="경계선&#10;필지 경계선"></textarea><p class="field-help">정답으로 인정할 표현을 한 줄에 하나씩 입력하세요.</p></div>
         <div class="field" id="essay-fields" hidden><label for="grading-guide">강사용 채점 기준 (선택)</label><textarea id="grading-guide" rows="4" maxlength="2000" aria-describedby="grading-guide-note" disabled></textarea><p class="field-help" id="grading-guide-note">채점 기준은 강사만 확인합니다. 접수 마감 후 답안별로 정답 또는 오답을 선택하세요.</p></div>

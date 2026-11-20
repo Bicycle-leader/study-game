@@ -4,7 +4,7 @@ import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readStud
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
 const jsonLimit = 16 * 1024;
-const allowedTeacherActions = new Set(['questions', 'question-sources', 'scope', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
+const allowedTeacherActions = new Set(['questions', 'question-sources', 'extend-choices', 'scope', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
 
 function randomHex(bytes) {
   return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (byte) => byte.toString(16).padStart(2, '0')).join('');

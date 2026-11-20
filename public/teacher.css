@@ -52,6 +52,10 @@ a { color: inherit; }
 .fullscreen-button:hover, .button-secondary:hover, .edit-button:hover { background: #f4f7f1; }
 .button-primary { color: #fff; background: var(--pine); border-color: var(--pine); }
 .button-primary:hover:not(:disabled) { background: #103229; }
+.reset-class-button { color: #843c2b; background: #fff; border-color: #edd9cc; }
+.reset-class-button:hover:not(:disabled) { background: var(--clay-light); }
+.button-danger { color: #fff; background: #843c2b; border-color: #843c2b; }
+.button-danger:hover:not(:disabled) { background: #6a2e20; }
 
 .layout { padding: 25px 0 29px; }
 .hero { min-height: 226px; position: relative; isolation: isolate; display: flex; align-items: center; justify-content: space-between; gap: 35px; padding: 30px 37px 30px 42px; overflow: hidden; border: 1px solid #204a3d; border-radius: 17px; color: #f5f7ec; background: var(--pine); }
@@ -216,6 +220,10 @@ a { color: inherit; }
 .modal .field { display: grid; gap: 5px; }
 .modal :is(input:not([type='radio']), textarea, select) { width: 100%; padding: 8px 10px; color: var(--ink); background: #fbfcfa; border: 1px solid #cad7c8; border-radius: 7px; font-size: 14px; }
 .modal textarea { resize: vertical; }
+#reset-note { font-size: 14px; line-height: 1.65; word-break: keep-all; }
+.reset-link-options { display: grid; gap: 8px; min-width: 0; margin: 5px 0 0; padding: 8px 10px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.reset-link-options label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.reset-link-options input { flex: 0 0 auto; margin: 0; accent-color: var(--pine); }
 .essay-modal { width: min(680px, calc(100% - 28px)); }
 .essay-modal .modal-heading { position: sticky; top: 0; z-index: 1; background: #fff; }
 .essay-body { gap: 12px; }
@@ -301,4 +309,8 @@ a { color: inherit; }
   .question-panel { grid-row: 1; }
   .response-panel { grid-row: 2; }
   .question-list { padding: 9px; }
+}
+@media (max-width: 760px) {
+  #connection-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .reset-class-button { padding-inline: 9px; font-size: 12px; }
 }

@@ -4,7 +4,8 @@ const kindLabels = { multiple: '객관식', short: '단답형', essay: '서술�
 const stageLabels = { waiting: '출제 대기', open: '응답 받는 중', closed: '접수 마감' };
 const defaultEssaySeconds = 120;
 const warmupCategory = '기초학습';
-const optionMarkers = ['A', 'B', 'C', 'D'];
+const optionMarkers = ['A', 'B', 'C', 'D', 'E', 'F'];
+const multipleOptionCount = 5;
 const emptySummary = { total: 0, correctCount: 0, incorrectCount: 0, pendingCount: 0, optionCounts: [] };
 const dateFormatter = new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
 const rendered = new Map();
@@ -169,7 +170,10 @@ function syncControls() {
     'copy-join-link': { disabled: !state?.joinUrl },
     'download-history': { disabled: busy || !state?.history?.length || pendingExport, hidden: presenting },
     'history-download-note': { hidden: presenting || !pendingExport },
-    'reset-class': { disabled: busy || !state, hidden: presenting },
+    'reset-class': { disabled: busy || !state, hidden: presenting || !state },
+    'reset-link-options': { disabled: busy },
+    'confirm-reset': { disabled: busy },
+    'cancel-reset': { disabled: busy },
   };
   for (const [id, properties] of Object.entries(controls)) {
     const node = $(id);
@@ -496,6 +500,7 @@ function showLogin(message = '') {
   closeEssayDialog();
   closeQuestionDialog();
   closeEssayTimeDialog();
+  $('reset-dialog').close();
   const dialog = $('login-dialog');
   if (dialog && !dialog.open) dialog.showModal();
 }
@@ -562,6 +567,7 @@ async function loadState() {
         closeEssayDialog();
         closeQuestionDialog();
         closeEssayTimeDialog();
+        $('reset-dialog').close();
       }
       setConnection('offline');
     }
@@ -631,7 +637,7 @@ function syncQuestionType() {
   for (const kind of Object.keys(kindLabels)) {
     const fields = $(`${kind}-fields`);
     fields.hidden = type !== kind;
-    fields.querySelectorAll('input, textarea').forEach((input) => { input.disabled = fields.hidden; });
+    fields.querySelectorAll('input, textarea').forEach((input) => { input.disabled = Boolean(input.closest('[hidden]')); });
   }
 }
 
@@ -653,6 +659,11 @@ function openQuestionDialog(question) {
   $('question-input').value = question?.title || '';
   $('question-chapter').value = question?.chapter || '';
   $('question-topic').value = question?.topic || '';
+  const hasLegacyOption = question?.options?.length > multipleOptionCount;
+  $('legacy-option-field').hidden = !hasLegacyOption;
+  setText('multiple-option-help', hasLegacyOption
+    ? '보기 6개 중 하나의 내용을 지우고, 남은 보기에서 정답을 선택하세요.'
+    : '보기 5개를 입력하고 정답 하나를 선택하세요.');
   form.querySelectorAll('[data-option]').forEach((input, index) => {
     input.value = question?.options?.[index] || '';
   });
@@ -685,12 +696,13 @@ function readQuestion(form) {
     return question;
   }
 
-  const options = Array.from(form.querySelectorAll('[data-option]'), (input) => input.value.trim());
-  const correctInput = form.querySelector('[name="correct-index"]:checked');
+  const options = Array.from(form.querySelectorAll('[data-option]:enabled'), (input) => input.value.trim());
+  const filledOptions = options.filter(Boolean);
+  const correctInput = form.querySelector('[name="correct-index"]:enabled:checked');
   const selectedOption = correctInput ? Number(correctInput.value) : -1;
-  if (options.filter(Boolean).length < 2) throw new Error('보기를 두 개 이상 입력해 주세요.');
+  if (filledOptions.length !== multipleOptionCount) throw new Error('보기를 5개 입력해 주세요.');
   if (!options[selectedOption]) throw new Error('내용이 입력된 보기를 정답으로 선택해 주세요.');
-  question.options = options.filter(Boolean);
+  question.options = filledOptions;
   question.correctIndex = options.slice(0, selectedOption).filter(Boolean).length;
   return question;
 }
@@ -1091,14 +1103,30 @@ listen('download-history', 'click', () => {
   }
 });
 listen('reset-class', 'click', () => {
-  if (!window.confirm('새 수업을 시작할까요? 문제 목록은 보존되며 참여 학생, 제출 답안 및 응답 기록이 삭제됩니다.')) return;
-  mutate('reset', {}, {
-    message: '새 수업이 시작되었습니다. 새로운 참여 링크를 공유하세요.',
+  if (!state || busy || presenting) return;
+  $('reset-form').reset();
+  setText('reset-error', '');
+  $('reset-dialog').showModal();
+});
+listen('cancel-reset', 'click', () => $('reset-dialog').close());
+listen('reset-dialog', 'cancel', (event) => {
+  if (busy) event.preventDefault();
+});
+listen('reset-form', 'submit', (event) => {
+  event.preventDefault();
+  if (!state || busy || presenting) return;
+  const keepRoomCode = new FormData(event.currentTarget).get('reset-link') === 'keep';
+  setText('reset-error', '');
+  mutate('reset', { keepRoomCode }, {
+    message: keepRoomCode ? '수업을 초기화했습니다. 기존 참여 링크로 다시 참여하세요.' : '수업을 초기화했습니다. 새 참여 링크를 공유하세요.',
     after: () => {
+      $('reset-dialog').close();
       state = null;
       selectedId = null;
+      syncCountdown({}, performance.now());
       setJoinScreen(true);
     },
+    onError: (message) => setText('reset-error', message),
   });
 });
 listen('copy-code', 'click', () => copy(state?.roomCode, '참여 코드'));
@@ -1115,6 +1143,7 @@ function setPresentation(active) {
     closeQuestionDialog();
     closeEssayDialog();
     closeEssayTimeDialog();
+    $('reset-dialog').close();
   }
   activateTab(active ? 'overview' : activeTab);
   const button = $('fullscreen');
