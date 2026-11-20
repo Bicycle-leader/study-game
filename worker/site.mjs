@@ -1,10 +1,10 @@
 import assets from './assets.mjs';
-import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readStudentState, readTeacherState, settleQuizTimer } from './quiz-engine.mjs';
+import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readLectureState, readStudentState, readTeacherState, settleQuizTimer } from './quiz-engine.mjs';
 
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
 const jsonLimit = 16 * 1024;
-const allowedTeacherActions = new Set(['questions', 'question-sources', 'extend-choices', 'scope', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
+const allowedTeacherActions = new Set(['questions', 'question-sources', 'extend-choices', 'scope', 'lecture', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
 
 function randomHex(bytes) {
   return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -136,6 +136,10 @@ function mutateQuiz(db, action, body, participantToken) {
 
 async function handleApi(request, env, url) {
   const participantToken = request.headers.get('X-Participant-Token');
+  if (request.method === 'GET' && url.pathname === '/api/lecture') {
+    const { state } = await loadQuiz(env.DB);
+    return json(readLectureState(state, url.searchParams.get('code')));
+  }
   if (request.method === 'GET' && url.pathname === '/api/teacher/essay') {
     await requireTeacher(request, env);
     return runQuizOperation(env.DB, ({ state }) => json(readEssayReview(state, url.searchParams.get('questionId'))));
@@ -168,6 +172,7 @@ function serveAsset(request, pathname) {
   if (request.method !== 'GET' && request.method !== 'HEAD') throw new ApiError(405, '지원하지 않는 요청입니다.');
   if (pathname === '/') pathname = '/index.html';
   if (pathname === '/join' || pathname === '/join/') pathname = '/student.html';
+  if (pathname === '/lecture' || pathname === '/lecture/') pathname = '/lecture.html';
   if (!Object.hasOwn(assets, pathname)) throw new ApiError(404, '페이지를 찾을 수 없습니다.');
   const asset = assets[pathname];
   const headers = { ...responseHeaders, 'Content-Type': asset.contentType, 'Cache-Control': 'no-cache' };

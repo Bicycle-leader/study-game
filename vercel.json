@@ -9,6 +9,10 @@
     {
       "source": "/join",
       "destination": "/student.html"
+    },
+    {
+      "source": "/lecture",
+      "destination": "/lecture.html"
     }
   ]
 }

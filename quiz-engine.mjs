@@ -1,3 +1,7 @@
+import { lecturePages } from './public/lecture-content.mjs';
+
+const lecturePageCount = lecturePages.length;
+
 const seedQuestions = [
   {
     id: 'parcel-number',
@@ -49,6 +53,7 @@ export function createQuizState({ randomHex }) {
     stage: 'waiting',
     activeQuestionId: null,
     closesAt: null,
+    lecturePageIndex: 0,
     questions: structuredClone(seedQuestions),
     participants: [],
     responses: [],
@@ -70,6 +75,31 @@ function requireRoom(state, code) {
   if (typeof code !== 'string' || code.trim().toUpperCase() !== state.roomCode) {
     throw new ApiError(404, '수업을 찾을 수 없습니다. 참여 코드를 확인해 주세요.');
   }
+}
+
+function isLecturePageIndex(value) {
+  return Number.isInteger(value) && value >= 0 && value < lecturePageCount;
+}
+
+function lecturePageIndex(state) {
+  return isLecturePageIndex(state.lecturePageIndex) ? state.lecturePageIndex : 0;
+}
+
+export function readLectureState(state, code) {
+  requireRoom(state, code);
+  return { roomCode: state.roomCode, pageIndex: lecturePageIndex(state) };
+}
+
+function showLecturePage(state, { pageIndex, expectedPageIndex }) {
+  if (!isLecturePageIndex(pageIndex) || (expectedPageIndex !== undefined && !isLecturePageIndex(expectedPageIndex))) {
+    throw new ApiError(400, '강의 페이지 번호를 확인해 주세요.');
+  }
+  const current = lecturePageIndex(state);
+  if (pageIndex === current) return accepted(state);
+  if (expectedPageIndex !== undefined && expectedPageIndex !== current) {
+    throw new ApiError(409, '강의 페이지가 바뀌었습니다. 현재 페이지를 확인해 주세요.');
+  }
+  return accepted({ ...state, lecturePageIndex: pageIndex });
 }
 
 function normalizeAnswer(answer) {
@@ -162,6 +192,8 @@ export function readTeacherState(state, joinUrl, now = Date.now()) {
   // Rooms saved before scope selection used the last opened question as their sequence position.
   const lastQuestionId = Object.hasOwn(state, 'scopeLastQuestionId') ? state.scopeLastQuestionId : state.activeQuestionId;
   const nextQuestionId = scopeQuestionIds[scopeQuestionIds.indexOf(lastQuestionId) + 1] ?? null;
+  const lectureUrl = new URL('/lecture', joinUrl);
+  lectureUrl.searchParams.set('code', state.roomCode);
   return {
     roomCode: state.roomCode,
     stage: state.stage,
@@ -177,6 +209,8 @@ export function readTeacherState(state, joinUrl, now = Date.now()) {
     summary: summarizeQuestion(state, question),
     history: (state.history || []).map((entry) => readHistoryEntry(state, entry)),
     joinUrl,
+    lecturePageIndex: lecturePageIndex(state),
+    lectureUrl: lectureUrl.href,
   };
 }
 
@@ -506,6 +540,7 @@ function resetRoom(state, randomHex, keepRoomCode = false) {
     stage: 'waiting',
     activeQuestionId: null,
     closesAt: null,
+    lecturePageIndex: 0,
     participants: [],
     responses: [],
     history: [],
@@ -597,6 +632,8 @@ export function applyQuizMutation(state, action, body, context) {
       return gradeEssay(state, body);
     case 'scope':
       return selectQuestionScope(state, body);
+    case 'lecture':
+      return showLecturePage(state, body);
     case 'open': {
       const question = requiredQuestion(state, body.id);
       if (state.activeQuestionId === body.id && state.stage === 'open') return accepted(state);

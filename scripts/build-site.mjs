@@ -1,14 +1,17 @@
-import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lecturePages } from '../public/lecture-content.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const publicDirectory = path.join(root, 'public');
 const serverDirectory = path.join(root, 'dist', 'server');
+const lecturePageCountSource = /^import \{ lecturePages \} from '\.\/public\/lecture-content\.mjs';\r?\n\r?\nconst lecturePageCount = lecturePages\.length;/;
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.png': 'image/png',
   '.txt': 'text/plain; charset=utf-8',
 };
@@ -35,9 +38,18 @@ async function bundleAssets(directory) {
 }
 
 await mkdir(serverDirectory, { recursive: true });
-const assets = await bundleAssets(publicDirectory);
+const [assets, engine] = await Promise.all([
+  bundleAssets(publicDirectory),
+  readFile(path.join(root, 'quiz-engine.mjs'), 'utf8'),
+]);
+if (!lecturePageCountSource.test(engine) || !Array.isArray(lecturePages) || lecturePages.length === 0) {
+  throw new Error('Cannot bundle the lecture page count.');
+}
+// The browser lesson is served from assets.mjs. The Worker engine only needs its page count.
+const builtEngine = engine.replace(lecturePageCountSource, `const lecturePageCount = ${lecturePages.length};`);
 await Promise.all([
   copyFile(path.join(root, 'worker', 'site.mjs'), path.join(serverDirectory, 'index.js')),
-  copyFile(path.join(root, 'quiz-engine.mjs'), path.join(serverDirectory, 'quiz-engine.mjs')),
+  writeFile(path.join(serverDirectory, 'quiz-engine.mjs'), builtEngine),
   writeFile(path.join(serverDirectory, 'assets.mjs'), `export default ${JSON.stringify(assets)};\n`),
+  rm(path.join(serverDirectory, 'public', 'lecture-content.mjs'), { force: true }),
 ]);

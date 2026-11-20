@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f6f1">
+  <title>강의 보기 · 지적클래스</title>
+  <link rel="icon" type="image/png" href="/assets/icon.png">
+  <link rel="stylesheet" href="/lecture.css">
+  <script type="module" src="/lecture-viewer.mjs"></script>
+</head>
+<body class="lecture-viewer">
+  <header class="lecture-viewer-header">
+    <div class="lecture-viewer-frame lecture-viewer-topline">
+      <div class="lecture-viewer-brand">
+        <img src="/assets/icon.png" width="36" height="36" alt="">
+        <h1>지적학 강의</h1>
+      </div>
+      <span class="lecture-connection" id="lecture-connection" data-status="loading" role="status">연결 중</span>
+    </div>
+  </header>
+  <main class="lecture-viewer-frame lecture-viewer-main">
+    <div class="lecture-notice" id="lecture-notice">
+      <p id="lecture-notice-text">현재 강의 페이지를 불러오는 중입니다.</p>
+      <button id="lecture-retry" type="button" hidden>다시 연결</button>
+    </div>
+    <div id="lecture-viewer-slide" hidden></div>
+    <p class="lecture-visually-hidden" id="lecture-announcement" aria-live="polite"></p>
+    <noscript><p class="lecture-noscript">강의 화면을 보려면 브라우저의 자바스크립트를 사용해 주세요.</p></noscript>
+  </main>
+</body>
+</html>

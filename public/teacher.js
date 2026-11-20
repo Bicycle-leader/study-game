@@ -21,6 +21,7 @@ let revision = 0;
 let toastTimeout;
 let renderedQrUrl;
 let presenting = false;
+let classMode = 'home';
 let joining = true;
 let managing = false;
 let activeTab = 'overview';
@@ -28,6 +29,11 @@ let countdown = null;
 let countdownTick = null;
 let essaySession = null;
 let pendingEssayId = null;
+let lecturePages;
+let lectureRenderer;
+let lectureLoading = false;
+let lectureLoadFailed = false;
+let renderedLecturePage = null;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -144,12 +150,21 @@ function syncControls() {
   const isWaiting = !state || state.stage === 'waiting';
   const isClosedEssay = state?.stage === 'closed' && releasedQuestion()?.type === 'essay';
   const pendingExport = hasPendingExport(state?.history);
+  const lectureIndex = currentLecturePage();
   const isUsed = question && (
     (isActive && state.summary?.total > 0) ||
     state.history?.some((entry) => entry.questionId === question.id && entry.total > 0)
   );
   if (pendingEssayId && (isOpen || questionToOpen()?.id !== pendingEssayId)) closeEssayTimeDialog();
   const controls = {
+    'select-quiz-mode': { disabled: busy || !state },
+    'select-lecture-mode': { disabled: busy || !state },
+    'back-to-modes': { disabled: busy },
+    'fullscreen': { hidden: classMode === 'home' },
+    'lecture-jump': { disabled: busy || lectureIndex === null },
+    'lecture-previous': { disabled: busy || lectureIndex === null || lectureIndex === 0 },
+    'lecture-next': { disabled: busy || lectureIndex === null || lectureIndex === lecturePages.length - 1 },
+    'copy-lecture-link': { disabled: !state?.lectureUrl },
     'toggle-question-management': { disabled: busy || !state, hidden: presenting },
     'bank-panel': { hidden: !managing },
     'add-question': { disabled: busy || !state },
@@ -170,7 +185,7 @@ function syncControls() {
     'copy-join-link': { disabled: !state?.joinUrl },
     'download-history': { disabled: busy || !state?.history?.length || pendingExport, hidden: presenting },
     'history-download-note': { hidden: presenting || !pendingExport },
-    'reset-class': { disabled: busy || !state, hidden: presenting || !state },
+    'reset-class': { disabled: busy || !state, hidden: classMode !== 'quiz' || presenting || !state },
     'reset-link-options': { disabled: busy },
     'confirm-reset': { disabled: busy },
     'cancel-reset': { disabled: busy },
@@ -452,7 +467,8 @@ function render() {
     const active = scoped.find((item) => item.id === state.activeQuestionId);
     selectedId = active?.id || nextQuestion()?.id || scoped[0]?.id || null;
   }
-  if (joining) renderJoinQr();
+  if (classMode === 'quiz' && joining) renderJoinQr();
+  if (classMode === 'lecture') renderLecture();
   renderScope();
   if (!state) {
     for (const id of ['question-list', 'history-list', 'participant-list']) renderList(id, null, () => []);
@@ -509,7 +525,7 @@ function forgetLogin() {
   teacherToken = '';
   sessionStorage.removeItem('study-game-teacher');
   state = null;
-  setJoinScreen(true, false);
+  setClassMode('home', false);
   syncCountdown({}, performance.now());
   showLogin(hosted ? '강사 로그인 시간이 만료되었습니다.' : '강사 로그인 키를 입력해 주세요.');
 }
@@ -601,7 +617,7 @@ async function mutate(path, payload, { message, after, onError } = {}) {
     if (error.status === 401) {
       forgetLogin();
     } else if (onError) {
-      onError(error.message, error.status);
+      await onError(error.message, error.status);
     } else {
       showToast(error.message, true);
     }
@@ -851,6 +867,84 @@ async function copy(value, label) {
   }
 }
 
+function currentLecturePage() {
+  const index = state?.lecturePageIndex;
+  return Number.isInteger(index) && lecturePages?.[index] ? index : null;
+}
+
+function lectureViewerUrl() {
+  if (!state?.lectureUrl) return '';
+  const url = new URL(state.lectureUrl);
+  return window.location.protocol === 'https:' ? new URL(url.pathname + url.search, window.location.origin).href : url.href;
+}
+
+function renderLecture() {
+  const index = currentLecturePage();
+  const slide = $('teacher-lecture-slide');
+  const status = $('teacher-lecture-status');
+  const viewerLink = $('lecture-student-link');
+  const viewerUrl = lectureViewerUrl();
+  viewerLink.hidden = !viewerUrl;
+  if (viewerUrl) viewerLink.href = viewerUrl;
+  else viewerLink.removeAttribute('href');
+
+  status.hidden = index !== null;
+  if (index === null) {
+    const message = lectureLoadFailed ? '강의 자료를 불러오지 못했습니다.' : '강의 내용을 불러오는 중입니다.';
+    setText('teacher-lecture-status', message);
+    slide.replaceChildren();
+  } else if (renderedLecturePage !== index) {
+    lectureRenderer(slide, lecturePages[index], index, lecturePages.length);
+  }
+  renderedLecturePage = index;
+
+  $('teacher-lecture-tools').hidden = presenting;
+  renderList('lecture-jump', presenting ? null : lecturePages?.length ?? null, () => {
+    if (presenting || !lecturePages) return [];
+    const chapters = new Map();
+    lecturePages.forEach((page, index) => {
+      if (!chapters.has(page.chapter)) {
+        const group = el('optgroup');
+        group.label = page.chapter;
+        chapters.set(page.chapter, group);
+      }
+      const option = el('option', '', page.title);
+      option.value = String(index);
+      chapters.get(page.chapter).append(option);
+    });
+    return [...chapters.values()];
+  });
+  if (!presenting && index !== null) $('lecture-jump').value = String(index);
+}
+
+async function loadLectureResources() {
+  if (lecturePages || lectureLoading) return;
+  lectureLoading = true;
+  lectureLoadFailed = false;
+  try {
+    const [content, renderer] = await Promise.all([import('/lecture-content.mjs'), import('/lecture-renderer.mjs')]);
+    lecturePages = content.lecturePages;
+    lectureRenderer = renderer.renderLectureSlide;
+  } catch {
+    lectureLoadFailed = true;
+  } finally {
+    lectureLoading = false;
+    if (classMode === 'lecture') render();
+  }
+}
+
+function changeLecturePage(pageIndex) {
+  const expectedPageIndex = currentLecturePage();
+  if (classMode !== 'lecture' || busy || expectedPageIndex === null || pageIndex === expectedPageIndex || !lecturePages[pageIndex]) return;
+  mutate('lecture', { pageIndex, expectedPageIndex }, {
+    onError: async (message, status) => {
+      if (status === 409) await loadState();
+      if (classMode === 'lecture') renderLecture();
+      showToast(message, true);
+    },
+  });
+}
+
 function renderJoinQr() {
   const { joinUrl, roomCode, participants, summary } = state || {};
   const submittedStudents = releasedQuestion() ? summary?.total ?? 0 : 0;
@@ -907,13 +1001,22 @@ function activateTab(name) {
   });
 }
 
+function updateModeVisibility() {
+  const quiz = classMode === 'quiz';
+  $('mode-screen').hidden = classMode !== 'home';
+  $('mode-toolbar').hidden = classMode === 'home' || presenting;
+  $('lecture-screen').hidden = classMode !== 'lecture';
+  $('join-screen').hidden = !quiz || !joining;
+  $('class-hero').hidden = !quiz || joining;
+  $('class-metrics').hidden = !quiz || joining;
+  document.body.classList.toggle('is-joining', joining);
+  document.body.classList.toggle('is-lecture', classMode === 'lecture');
+}
+
 function setJoinScreen(active, focus = true) {
-  joining = active;
-  document.body.classList.toggle('is-joining', active);
-  $('join-screen').hidden = !active;
-  $('class-hero').hidden = active;
-  $('class-metrics').hidden = active;
-  if (active) {
+  joining = classMode !== 'quiz' || active;
+  updateModeVisibility();
+  if (joining) {
     managing = false;
     closeEssayDialog();
     closeQuestionDialog();
@@ -921,12 +1024,28 @@ function setJoinScreen(active, focus = true) {
   }
   activateTab('overview');
   render();
-  if (focus) $(active ? 'join-heading' : 'question-heading').focus();
+  if (focus) $(joining ? 'join-heading' : 'question-heading').focus();
+}
+
+function setClassMode(mode, focus = true) {
+  classMode = mode;
+  setJoinScreen(true, false);
+  if (classMode === 'lecture') void loadLectureResources();
+  const focusTarget = { home: 'mode-heading', quiz: 'join-heading', lecture: 'lecture-screen' };
+  if (focus) $(focusTarget[mode]).focus();
 }
 
 function listen(id, event, handler) {
   $(id)?.addEventListener(event, handler);
 }
+
+listen('select-quiz-mode', 'click', () => { if (state && !busy) setClassMode('quiz'); });
+listen('select-lecture-mode', 'click', () => { if (state && !busy) setClassMode('lecture'); });
+listen('back-to-modes', 'click', () => { if (!busy && !presenting) setClassMode('home'); });
+listen('lecture-previous', 'click', () => changeLecturePage(currentLecturePage() - 1));
+listen('lecture-next', 'click', () => changeLecturePage(currentLecturePage() + 1));
+listen('lecture-jump', 'change', (event) => changeLecturePage(Number(event.currentTarget.value)));
+listen('copy-lecture-link', 'click', () => copy(lectureViewerUrl(), '강의 보기 링크'));
 
 listen('login-dialog', 'cancel', (event) => event.preventDefault());
 listen('login-form', 'submit', async (event) => {
@@ -1138,6 +1257,7 @@ listen('enter-class', 'click', () => { if (state) setJoinScreen(false); });
 function setPresentation(active) {
   presenting = active;
   document.body.classList.toggle('is-projecting', active);
+  updateModeVisibility();
   if (active) {
     managing = false;
     closeQuestionDialog();

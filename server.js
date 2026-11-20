@@ -16,6 +16,7 @@ const mimeTypes = {
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -29,7 +30,7 @@ const mimeTypes = {
 
 async function main() {
   const {
-    ApiError, createQuizState, readTeacherState, readStudentState, readEssayReview, applyQuizMutation, settleQuizTimer,
+    ApiError, createQuizState, readTeacherState, readStudentState, readLectureState, readEssayReview, applyQuizMutation, settleQuizTimer,
   } = await import('./quiz-engine.mjs');
   const quizContext = {
     randomHex: (length) => crypto.randomBytes(length).toString('hex'),
@@ -139,6 +140,9 @@ async function main() {
   async function handleApi(request, response, url) {
     const participantToken = request.headers['x-participant-token'];
     const route = `${request.method} ${url.pathname}`;
+    if (route === 'GET /api/lecture') {
+      return sendJson(response, 200, readLectureState(state, url.searchParams.get('code')));
+    }
     if (route === 'GET /api/teacher/essay') {
       requireTeacher(request);
       updateState(settleQuizTimer(state));
@@ -191,6 +195,7 @@ async function main() {
     }
     if (pathname === '/') pathname = '/index.html';
     if (pathname === '/join' || pathname === '/join/') pathname = '/student.html';
+    if (pathname === '/lecture' || pathname === '/lecture/') pathname = '/lecture.html';
     const filename = path.resolve(PUBLIC_DIR, `.${pathname}`);
     if (!filename.startsWith(`${PUBLIC_DIR}${path.sep}`) || !path.extname(filename)) {
       throw new ApiError(404, '페이지를 찾을 수 없습니다.');
