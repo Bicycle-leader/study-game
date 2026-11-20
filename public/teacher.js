@@ -35,6 +35,12 @@ let lectureLoading = false;
 let lectureLoadFailed = false;
 let renderedLecturePage = null;
 let lectureQr;
+let guideView = 'closed';
+let guideRevision = '';
+const teacherGuide = window.createAnswerGuide({
+  dialog: $('teacher-answer-guide'),
+  loadEntries: () => api(guideView === 'closed' ? '/api/teacher/guides?scope=closed' : '/api/teacher/guides'),
+});
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -359,9 +365,9 @@ function renderQuestion() {
   if (badge) badge.dataset.stage = questionStage;
 
   const showKey = !presenting || questionStage === 'closed';
-  const explanation = showKey ? question?.explanation : '';
-  $('question-explanation').hidden = !explanation;
-  setText('explanation-text', explanation || '');
+  const guideButton = $('open-current-guide');
+  guideButton.hidden = questionStage !== 'closed' || !question;
+  guideButton.dataset.questionId = question?.id || '';
   renderList('question-options', [question, showKey], () => {
     if (!question || question.type === 'essay') return [];
     const isShort = question.type === 'short';
@@ -433,6 +439,7 @@ function renderResponseSummary() {
 }
 
 function renderHistory() {
+  $('open-history-guide').hidden = !state?.history?.some(({ questionId }) => state.stage !== 'open' || questionId !== state.activeQuestionId);
   if (joining || presenting) {
     renderList('history-list', null, () => []);
     return;
@@ -485,6 +492,15 @@ function renderParticipants() {
 }
 
 function render() {
+  if (!state || joining) teacherGuide.close();
+  if ($('teacher-answer-guide').open && guideView === 'closed') {
+    const revision = JSON.stringify([state.stage, state.activeQuestionId, state.history?.length]);
+    if (revision !== guideRevision) {
+      guideRevision = revision;
+      if (!state.history?.length) teacherGuide.close();
+      else teacherGuide.refresh(state.stage === 'open' ? state.activeQuestionId : undefined);
+    }
+  }
   const scoped = scopedQuestions();
   if (!scoped.some((item) => item.id === selectedId)) {
     const active = scoped.find((item) => item.id === state.activeQuestionId);
@@ -539,6 +555,7 @@ function showToast(message, isError = false) {
 }
 
 function showLogin(message = '') {
+  teacherGuide.close();
   setConnection('login');
   setText('login-error', message);
   closeEssayDialog();
@@ -1127,6 +1144,15 @@ function listen(id, event, handler) {
 }
 
 listen('select-quiz-mode', 'click', () => { if (state && !busy) setClassMode('quiz'); });
+function openTeacherGuide(scope, id) {
+  if (!state || joining || (presenting && scope !== 'closed')) return;
+  guideView = scope;
+  guideRevision = JSON.stringify([state.stage, state.activeQuestionId, state.history?.length]);
+  teacherGuide.open(id);
+}
+listen('open-bank-guide', 'click', () => { if (managing) openTeacherGuide('all', selectedId); });
+listen('open-current-guide', 'click', (event) => openTeacherGuide('closed', event.currentTarget.dataset.questionId));
+listen('open-history-guide', 'click', () => openTeacherGuide('closed', state?.history?.[0]?.questionId));
 listen('select-lecture-mode', 'click', () => { if (state && !busy) setClassMode('lecture'); });
 listen('back-to-modes', 'click', () => { if (!busy && !presenting) setClassMode('home'); });
 listen('enter-lecture', 'click', () => {
@@ -1363,6 +1389,7 @@ listen('show-qr', 'click', () => { if (state?.joinUrl) setJoinScreen(true); });
 listen('enter-class', 'click', () => { if (state) setJoinScreen(false); });
 
 function setPresentation(active) {
+  teacherGuide.close();
   presenting = active;
   document.body.classList.toggle('is-projecting', active);
   updateModeVisibility();

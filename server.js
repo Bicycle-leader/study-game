@@ -30,7 +30,8 @@ const mimeTypes = {
 
 async function main() {
   const {
-    ApiError, createQuizState, upgradeQuizState, readTeacherState, readStudentState, readLectureState, readEssayReview, applyQuizMutation, settleQuizTimer,
+    ApiError, createQuizState, upgradeQuizState, readTeacherState, readStudentState, readLectureState, readEssayReview,
+    readTeacherAnswerGuides, applyQuizMutation, settleQuizTimer,
   } = await import('./quiz-engine.mjs');
   const quizContext = {
     randomHex: (length) => crypto.randomBytes(length).toString('hex'),
@@ -142,6 +143,14 @@ async function main() {
     const route = `${request.method} ${url.pathname}`;
     if (route === 'GET /api/lecture') {
       return sendJson(response, 200, readLectureState(state, url.searchParams.get('code')));
+    }
+    if (route === 'GET /api/teacher/guides') {
+      requireTeacher(request);
+      updateState(settleQuizTimer(state));
+      return sendJson(response, 200, readTeacherAnswerGuides(state, url.searchParams.get('scope') === 'closed'));
+    }
+    if (route === 'GET /api/student/guides') {
+      throw new ApiError(403, '해설서는 강사 화면에서만 열 수 있습니다.');
     }
     if (route === 'GET /api/teacher/essay') {
       requireTeacher(request);

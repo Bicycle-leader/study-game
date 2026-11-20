@@ -129,7 +129,6 @@ function showResult(question, response, closed) {
       ? answerText(question, question.correctIndex)
       : question.acceptedAnswers?.join(' 또는 ') ?? '—';
     ui['result-details'].append(resultRow('정답', correct));
-    if (question.explanation) ui['result-details'].append(resultRow('해설', question.explanation));
   }
   return message;
 }

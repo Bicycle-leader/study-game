@@ -1,5 +1,5 @@
 import assets from './assets.mjs';
-import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readLectureState, readStudentState, readTeacherState, settleQuizTimer, upgradeQuizState } from './quiz-engine.mjs';
+import { ApiError, applyQuizMutation, createQuizState, readEssayReview, readLectureState, readStudentState, readTeacherState, readTeacherAnswerGuides, settleQuizTimer, upgradeQuizState } from './quiz-engine.mjs';
 
 const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
@@ -231,6 +231,13 @@ async function handleApi(request, env, url) {
   if (request.method === 'GET' && url.pathname === '/api/teacher/essay') {
     await requireTeacher(request, env);
     return runQuizOperation(env.DB, ({ state }) => json(readEssayReview(state, url.searchParams.get('questionId'))));
+  }
+  if (request.method === 'GET' && url.pathname === '/api/teacher/guides') {
+    await requireTeacher(request, env);
+    return runQuizOperation(env.DB, ({ state }) => json(readTeacherAnswerGuides(state, url.searchParams.get('scope') === 'closed')));
+  }
+  if (request.method === 'GET' && url.pathname === '/api/student/guides') {
+    throw new ApiError(403, '해설서는 강사 화면에서만 열 수 있습니다.');
   }
   if (request.method === 'GET' && url.pathname === '/api/state') {
     const isTeacher = request.headers.has('Authorization');

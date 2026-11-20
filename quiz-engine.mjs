@@ -1,4 +1,5 @@
 import { lecturePages } from './public/lecture-content.mjs';
+import { examGuides, boundaryGuide, customGuide } from './guides/catalog.mjs';
 
 const lecturePageCount = lecturePages.length;
 const lectureDeckVersion = 2;
@@ -236,6 +237,10 @@ const essayLimit = 2_000;
 const multipleChoiceCount = 5;
 const warmupCategory = '기초학습';
 const defaultQuestionScope = { kind: 'all' };
+const guidesByDefinition = new Map(seedQuestions.map((question) => [
+  questionDefinition(question), question.type === 'multiple' ? examGuides[question.id] : boundaryGuide,
+]));
+const lessonsByTitle = new Map([...topicsByLabel.values()].map((lesson) => [lesson.title, lesson]));
 
 export class ApiError extends Error {
   constructor(status, message) {
@@ -476,7 +481,6 @@ export function readStudentState(state, code, participantToken, now = Date.now()
     if (showResult && topic) visibleQuestion.topic = topic;
     if (showResult && participant && type === 'multiple') {
       visibleQuestion.correctIndex = question.correctIndex;
-      if (question.explanation) visibleQuestion.explanation = question.explanation;
     }
     if (showResult && participant && type === 'short') visibleQuestion.acceptedAnswers = question.acceptedAnswers;
   }
@@ -490,6 +494,27 @@ export function readStudentState(state, code, participantToken, now = Date.now()
     participant: publicParticipant(participant),
     response: publicResponse(ownResponse, question, showResult),
   };
+}
+
+function guideEntry(question) {
+  const { id, type, title, examNumber, options, correctIndex, acceptedAnswers } = question;
+  const guide = guidesByDefinition.get(questionDefinition(question)) ||
+    customGuide(question, lessonsByTitle.get(question.topic?.replace(/^(?:논술\s*)?\d+\s+/u, '')));
+  const entry = { id, title, type, guide };
+  if (type === 'multiple') {
+    Object.assign(entry, { options, correctIndex });
+    if (examNumber) entry.examNumber = examNumber;
+  }
+  if (type === 'short') entry.acceptedAnswers = acceptedAnswers;
+  return entry;
+}
+
+export function readTeacherAnswerGuides(state, closedOnly = false) {
+  if (!closedOnly) return { entries: state.questions.map(guideEntry) };
+  const closed = new Set((state.history || []).map((record) => record.questionId));
+  if (state.stage === 'open') closed.delete(state.activeQuestionId);
+  const questions = [...state.questions, ...(state.archivedQuestions || [])].filter(({ id }) => closed.has(id));
+  return { entries: questions.map(guideEntry) };
 }
 
 function cleanText(value, maxLength, message) {

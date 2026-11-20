@@ -1,0 +1,61 @@
+.answer-guide {
+  box-sizing: border-box;
+  width: min(800px, calc(100% - 32px));
+  max-width: none;
+  max-height: min(90dvh, 980px);
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 400 16px/1.65 var(--font-sans);
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+.answer-guide[open] { display: flex; flex-direction: column; }
+.answer-guide::backdrop { background: rgb(14 30 41 / 60%); }
+body:has(.answer-guide[open]) { overflow: hidden; }
+.guide-header, .guide-navigation { display: flex; align-items: center; flex-shrink: 0; gap: 12px; padding: 14px clamp(18px, 4vw, 32px); }
+.guide-header { justify-content: space-between; background: var(--ink); color: white; }
+.guide-header h2 { margin: 0; font-size: clamp(20px, 2.5vw, 26px); line-height: 1.3; letter-spacing: -.045em; }
+.guide-close, .guide-retry { min-height: 42px; padding: 7px 15px; border: 1px solid currentColor; border-radius: 5px; background: transparent; color: inherit; font: 700 15px/1.4 var(--font-sans); cursor: pointer; }
+.guide-close:hover { background: #2e455a; }
+.guide-close:focus-visible { outline-color: #95e2ce; }
+.guide-navigation { border-bottom: 1px solid var(--line); background: var(--canvas); }
+.guide-navigation label { flex-shrink: 0; color: var(--muted); font-size: 14px; font-weight: 750; }
+.guide-navigation select { width: 100%; min-width: 0; min-height: 44px; padding: 5px 10px; border: 1px solid #a9b8b2; border-radius: 5px; color: var(--ink); background: white; font: 500 15px/1.4 var(--font-sans); }
+.guide-status, .guide-retry { margin: 15px clamp(18px, 4vw, 32px); }
+.guide-status { color: var(--muted); }
+.guide-status:empty { display: none; }
+.guide-retry { align-self: flex-start; margin-top: 0; color: var(--accent); }
+.guide-reading { overflow: auto; overscroll-behavior: contain; }
+.guide-article { padding: clamp(20px, 3.5vw, 36px); }
+.guide-question { margin: 0 0 16px; font-size: clamp(20px, 2.5vw, 27px); line-height: 1.45; letter-spacing: -.04em; }
+.guide-answers { display: grid; gap: 5px; margin: 0; padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); }
+.guide-answers div { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 10px; }
+.guide-answers dt { color: var(--accent); font-weight: 750; }
+.guide-answers dd { margin: 0; white-space: pre-wrap; }
+.guide-section { margin-top: 22px; }
+.guide-section h4 { margin: 0 0 7px; font-size: 18px; letter-spacing: -.025em; }
+.guide-section p, .guide-disclosure p { margin: 0; white-space: pre-wrap; }
+.guide-disclosure { margin-top: 12px; font-size: 15px; }
+.guide-disclosure summary { color: var(--accent); font-weight: 700; cursor: pointer; }
+.guide-disclosure ul, .guide-disclosure ol { margin: 8px 0 0; padding-left: 1.6em; }
+.guide-disclosure li + li { margin-top: 4px; }
+.guide-outline { margin: 0; padding-inline-start: 1.75em; }
+.guide-outline li { padding: 4px 0 8px 3px; }
+.guide-outline li::marker { color: var(--accent); font-weight: 800; }
+.guide-outline strong { display: block; margin-bottom: 1px; }
+.guide-model { padding: 14px 17px; border-left: 3px solid var(--ink); background: var(--canvas); }
+.guide-writing-notes { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
+.guide-writing-notes p { margin-top: 8px; }
+.guide-disclosure a { color: var(--accent); text-underline-offset: 2px; }
+@media (max-width: 540px) {
+  .answer-guide { width: calc(100% - 16px); max-height: calc(100dvh - 16px); }
+  .guide-header, .guide-navigation { padding: 10px 14px; gap: 8px; }
+  .guide-article { padding: 18px 14px 24px; }
+  .guide-answers { padding: 10px 12px; }
+  .guide-answers div { grid-template-columns: 3.8em minmax(0, 1fr); gap: 5px; }
+}

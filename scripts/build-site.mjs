@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lecturePages } from '../public/lecture-content.mjs';
@@ -48,10 +48,12 @@ const [assets, engine] = await Promise.all([
 if (!engine.includes(lectureImport) || !lecturePages.length) {
   throw new Error('Cannot bundle the lecture topic index.');
 }
-// Keep the full slides in browser assets. The quiz only uses their positions and topic labels.
-const lectureIndex = lecturePages.map(({ label, chapter, title, image }) => image ? { image: true } : { label, chapter, title });
+// The Worker also uses the lesson summary for questions added by a teacher.
+const lectureIndex = lecturePages.map(({ label, chapter, title, lead, takeaway, image }) =>
+  image ? { image: true } : { label, chapter, title, lead, takeaway });
 const builtEngine = engine.replace(lectureImport, () => `const lecturePages = ${JSON.stringify(lectureIndex)};`);
 await Promise.all([
+  cp(path.join(root, 'guides'), path.join(serverDirectory, 'guides'), { recursive: true }),
   copyFile(path.join(root, 'worker', 'site.mjs'), path.join(serverDirectory, 'index.js')),
   writeFile(path.join(serverDirectory, 'quiz-engine.mjs'), builtEngine),
   writeFile(path.join(serverDirectory, 'assets.mjs'), `export default ${JSON.stringify(assets)};\n`),
