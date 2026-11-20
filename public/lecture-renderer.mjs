@@ -22,20 +22,29 @@ export function renderLectureSlide(container, page, pageIndex, totalPages) {
   article.append(header);
 
   if (page.image) {
-    const { src, alt, width, height } = page.image;
+    const { src, webpSrc, alt, width, height } = page.image;
     const figure = element('figure', 'lecture-image-frame');
+    const picture = element('picture', 'lecture-image-picture');
     const image = element('img', 'lecture-image');
     image.alt = alt || page.title;
     if (width && height) {
       image.width = width;
       image.height = height;
     }
+    if (webpSrc) {
+      const source = document.createElement('source');
+      source.type = 'image/webp';
+      source.srcset = webpSrc;
+      picture.append(source);
+      image.addEventListener('error', () => source.remove(), { once: true });
+    }
+    picture.append(image);
     image.src = src;
     const enlarge = element('a', 'lecture-image-enlarge', '이미지 크게 보기');
     enlarge.href = src;
     enlarge.target = '_blank';
     enlarge.rel = 'noopener noreferrer';
-    figure.append(image, enlarge);
+    figure.append(picture, enlarge);
     article.append(figure);
     container.replaceChildren(article);
     return;

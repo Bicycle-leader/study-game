@@ -1294,7 +1294,7 @@ listen('download-history', 'click', () => {
     const url = URL.createObjectURL(workbook);
     const link = el('a');
     link.href = url;
-    link.download = '지적클래스-응답집계.xlsx';
+    link.download = '지적학-응답집계.xlsx';
     link.hidden = true;
     document.body.append(link);
     try {

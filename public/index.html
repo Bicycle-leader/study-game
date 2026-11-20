@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f5f7f2">
-  <title>지적클래스 · 강사 대시보드</title>
+  <meta name="theme-color" content="#f2f8fd">
+  <title>지적학 · 강사 대시보드</title>
   <meta name="description" content="지적학 강의를 발표하고 실시간 퀴즈를 진행하는 강사 대시보드">
-  <link rel="icon" type="image/png" href="/assets/icon.png">
+  <link rel="icon" type="image/png" href="/assets/jijeok-mark.png">
+  <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/teacher.css">
   <link rel="stylesheet" href="/lecture.css">
   <script src="/vendor/qrcode-generator.js" defer></script>
@@ -15,7 +16,6 @@
 </head>
 <body class="is-joining">
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-    <symbol id="i-map" viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z"/><path d="M9 3v15m6-12v15M3 12l6-3 6 3 6-3"/></symbol>
     <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/></symbol>
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 4v16h16M9 15v-3m5 3V8m5 7V5"/></symbol>
     <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3m2-15a3 3 0 0 1 0 6m4 9v-3a4 4 0 0 0-3-3.9"/></symbol>
@@ -36,9 +36,9 @@
 
   <header class="topbar">
     <div class="topbar-inner page-width">
-      <a class="brand" href="/" aria-label="지적클래스 강사 홈">
-        <span class="brand-emblem"><svg class="icon" aria-hidden="true"><use href="#i-map"/></svg></span>
-        <span class="brand-text"><strong>지적클래스</strong><small>강사 대시보드</small></span>
+      <a class="brand" href="/" aria-label="지적학 강사 홈">
+        <img class="brand-emblem" src="/assets/jijeok-mark.png" width="42" height="42" alt="">
+        <span class="brand-text"><strong>지적학</strong><small>강사 대시보드</small></span>
       </a>
       <nav class="top-nav" id="teacher-tabs" role="tablist" aria-label="강사 메뉴" hidden>
         <button class="nav-button is-active" id="overview-tab" type="button" role="tab" data-tab="overview" aria-controls="overview-panel" aria-selected="true"><svg class="icon" aria-hidden="true"><use href="#i-dashboard"/></svg>수업 진행</button>

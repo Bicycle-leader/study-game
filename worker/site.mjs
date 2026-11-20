@@ -5,7 +5,11 @@ const encoder = new TextEncoder();
 const sessionLifetime = 12 * 60 * 60;
 const jsonLimit = 16 * 1024;
 const lectureImageLimit = 2_000_000;
-const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+const lectureImageFormats = {
+  png: { contentType: 'image/png', signature: [137, 80, 78, 71, 13, 10, 26, 10] },
+  // RIFF stores the container byte length between its identifier and the WebP identifier.
+  webp: { contentType: 'image/webp', signature: [82, 73, 70, 70, null, null, null, null, 87, 69, 66, 80] },
+};
 const allowedTeacherActions = new Set(['questions', 'question-sources', 'extend-choices', 'scope', 'lecture', 'open', 'close', 'wait', 'reset', 'essay-grade', 'replace-questions']);
 
 function randomHex(bytes) {
@@ -91,9 +95,9 @@ function json(body, status = 200) {
   return Response.json(body, { status, headers: { ...responseHeaders, 'Cache-Control': 'no-store' } });
 }
 
-async function readLectureImage(request) {
-  if (!/^image\/png(?:\s*;|$)/i.test(request.headers.get('Content-Type') || '')) {
-    throw new ApiError(415, 'PNG 강의 이미지를 선택해 주세요.');
+async function readLectureImage(request, { contentType, signature }) {
+  if (request.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== contentType) {
+    throw new ApiError(415, '강의 이미지의 확장자와 파일 형식이 일치해야 합니다.');
   }
   if (Number(request.headers.get('Content-Length')) > lectureImageLimit) {
     throw new ApiError(413, '강의 이미지가 2 MB를 초과합니다.');
@@ -123,21 +127,21 @@ async function readLectureImage(request) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  if (size <= pngSignature.length || !pngSignature.every((value, index) => value === bytes[index])) {
-    throw new ApiError(400, 'PNG 이미지 형식이 올바르지 않습니다.');
+  if (size <= signature.length || !signature.every((value, index) => value === null || value === bytes[index])) {
+    throw new ApiError(400, '강의 이미지 형식이 올바르지 않습니다.');
   }
   return bytes;
 }
 
-async function storeLectureImage(request, bucket, key, hashPrefix) {
-  const bytes = await readLectureImage(request);
+async function storeLectureImage(request, bucket, key, hashPrefix, format) {
+  const bytes = await readLectureImage(request, format);
   const checksum = await crypto.subtle.digest('SHA-256', bytes);
   const sha256 = Array.from(new Uint8Array(checksum), (byte) => byte.toString(16).padStart(2, '0')).join('');
   if (!sha256.startsWith(hashPrefix)) throw new ApiError(400, '강의 이미지 식별자가 일치하지 않습니다.');
 
   const stored = await bucket.put(key, bytes, {
     onlyIf: new Headers({ 'If-None-Match': '*' }),
-    httpMetadata: { contentType: 'image/png' },
+    httpMetadata: { contentType: format.contentType },
     customMetadata: { sha256 },
     sha256: checksum,
   });
@@ -148,7 +152,7 @@ async function storeLectureImage(request, bucket, key, hashPrefix) {
 }
 
 async function serveLectureImage(request, env, pathname) {
-  const match = /^\/assets\/lecture\/([0-9]{2}-([a-f0-9]{12})\.png)$/.exec(pathname);
+  const match = /^\/assets\/lecture\/([0-9]{2}-([a-f0-9]{12})\.(png|webp))$/.exec(pathname);
   if (!match) throw new ApiError(404, '강의 이미지를 찾을 수 없습니다.');
   if (request.method === 'PUT') await requireTeacher(request, env);
   else if (request.method !== 'GET' && request.method !== 'HEAD') {
@@ -157,14 +161,16 @@ async function serveLectureImage(request, env, pathname) {
   const { BUCKET: bucket } = env;
   if (!bucket) throw new ApiError(503, '강의 이미지 저장소를 사용할 수 없습니다.');
 
-  const key = `lecture/${match[1]}`;
-  if (request.method === 'PUT') return storeLectureImage(request, bucket, key, match[2]);
+  const [, filename, hashPrefix, extension] = match;
+  const format = lectureImageFormats[extension];
+  const key = `lecture/${filename}`;
+  if (request.method === 'PUT') return storeLectureImage(request, bucket, key, hashPrefix, format);
   const object = request.method === 'HEAD' ? await bucket.head(key) : await bucket.get(key);
   if (!object) throw new ApiError(404, '강의 이미지를 찾을 수 없습니다.');
   return new Response(object.body ?? null, {
     headers: {
       ...responseHeaders,
-      'Content-Type': 'image/png',
+      'Content-Type': format.contentType,
       'Content-Length': String(object.size),
       'Cache-Control': 'public, max-age=31536000, immutable',
     },
