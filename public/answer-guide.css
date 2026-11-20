@@ -1,6 +1,6 @@
 .answer-guide {
   box-sizing: border-box;
-  width: min(800px, calc(100% - 32px));
+  width: min(960px, calc(100% - 32px));
   max-width: none;
   max-height: min(90dvh, 980px);
   margin: auto;
@@ -33,29 +33,85 @@ body:has(.answer-guide[open]) { overflow: hidden; }
 .guide-reading { overflow: auto; overscroll-behavior: contain; }
 .guide-article { padding: clamp(20px, 3.5vw, 36px); }
 .guide-question { margin: 0 0 16px; font-size: clamp(20px, 2.5vw, 27px); line-height: 1.45; letter-spacing: -.04em; }
-.guide-answers { display: grid; gap: 5px; margin: 0; padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); }
+.guide-answers { display: grid; gap: 5px; margin: 8px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); }
 .guide-answers div { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 10px; }
 .guide-answers dt { color: var(--accent); font-weight: 750; }
 .guide-answers dd { margin: 0; white-space: pre-wrap; }
 .guide-section { margin-top: 22px; }
-.guide-section h4 { margin: 0 0 7px; font-size: 18px; letter-spacing: -.025em; }
+.guide-section h4 { margin: 0 0 9px; font-size: 18px; letter-spacing: -.025em; }
 .guide-section p, .guide-disclosure p { margin: 0; white-space: pre-wrap; }
+.guide-section .guide-concept { line-height: 1.75; }
 .guide-disclosure { margin-top: 12px; font-size: 15px; }
 .guide-disclosure summary { color: var(--accent); font-weight: 700; cursor: pointer; }
 .guide-disclosure ul, .guide-disclosure ol { margin: 8px 0 0; padding-left: 1.6em; }
 .guide-disclosure li + li { margin-top: 4px; }
-.guide-outline { margin: 0; padding-inline-start: 1.75em; }
-.guide-outline li { padding: 4px 0 8px 3px; }
-.guide-outline li::marker { color: var(--accent); font-weight: 800; }
-.guide-outline strong { display: block; margin-bottom: 1px; }
-.guide-model { padding: 14px 17px; border-left: 3px solid var(--ink); background: var(--canvas); }
+.guide-outline {
+  margin: 0;
+  padding: 0;
+  border-top: 2px solid var(--accent);
+  border-bottom: 1px solid var(--line);
+  list-style: none;
+  counter-reset: guide-heading;
+}
+.guide-outline-block { counter-increment: guide-heading; }
+.guide-outline-block + .guide-outline-block { border-top: 1px solid var(--line); }
+.guide-outline-block h5 {
+  margin: 0;
+  padding: 7px 14px;
+  background: var(--canvas);
+  font-size: 16px;
+  line-height: 1.45;
+}
+.guide-outline-block h5::before {
+  content: counter(guide-heading, upper-roman) ".";
+  display: inline-block;
+  min-width: 1.8em;
+  color: var(--accent);
+}
+.guide-outline-lines { margin: 0; padding: 3px 14px; counter-reset: guide-subtopic; }
+.guide-outline-row {
+  display: grid;
+  grid-template-columns: minmax(0, 10em) minmax(0, 1fr);
+  gap: 6px 14px;
+  padding: 6px 0;
+  counter-increment: guide-subtopic;
+  line-height: 1.45;
+}
+.guide-outline-row + .guide-outline-row { border-top: 1px solid var(--line); }
+.guide-outline-row dt { font-weight: 750; }
+.guide-outline-row dt::before {
+  content: counter(guide-subtopic) ".";
+  margin-inline-end: 0.45em;
+  color: var(--accent);
+}
+.guide-outline-row dd { margin: 0; }
+.guide-reference { margin-top: 18px; }
 .guide-writing-notes { margin-top: 26px; padding-top: 16px; border-top: 1px solid var(--line); }
 .guide-writing-notes p { margin-top: 8px; }
 .guide-disclosure a { color: var(--accent); text-underline-offset: 2px; }
+@media (min-width: 840px) {
+  .guide-outline-block {
+    display: grid;
+    grid-template-columns: minmax(9rem, 21%) minmax(0, 1fr);
+  }
+  .guide-outline-block h5 {
+    display: grid;
+    grid-template-columns: 1.6em minmax(0, 1fr);
+    align-content: start;
+    padding: 9px 12px;
+    border-inline-end: 1px solid var(--line);
+  }
+  .guide-outline-block h5::before { min-width: 0; }
+}
 @media (max-width: 540px) {
   .answer-guide { width: calc(100% - 16px); max-height: calc(100dvh - 16px); }
   .guide-header, .guide-navigation { padding: 10px 14px; gap: 8px; }
   .guide-article { padding: 18px 14px 24px; }
   .guide-answers { padding: 10px 12px; }
   .guide-answers div { grid-template-columns: 3.8em minmax(0, 1fr); gap: 5px; }
+  .guide-outline-block h5 { padding-inline: 10px; }
+  .guide-outline-lines { padding-inline: 10px; }
+  .guide-outline-row { display: block; }
+  .guide-outline-row dt, .guide-outline-row dd { display: inline; }
+  .guide-outline-row dt { margin-inline-end: 0.6em; }
 }

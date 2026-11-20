@@ -33,7 +33,23 @@ function classroom() {
 }
 
 function assertNoGuide(payload) {
-  assert.doesNotMatch(JSON.stringify(payload), /"(?:guide|explanation|reasoning|pitfall|outline|model|reviewCount|canReviewCurrent|gradingGuide)":/);
+  assert.doesNotMatch(JSON.stringify(payload), /"(?:guide|concept|explanation|reasoning|pitfall|outline|model|reviewCount|canReviewCurrent|gradingGuide)":/);
+}
+
+function assertGuideLayout(guide) {
+  assert.ok(guide.concept?.trim());
+  assert.equal(guide.outline.length, 3);
+  assert.equal(new Set(guide.outline.map(([heading]) => heading)).size, 3);
+  for (const [heading, lines] of guide.outline) {
+    assert.ok(heading.trim());
+    assert.equal(lines.length, 2);
+    assert.notEqual(lines[0][0], lines[1][0]);
+    for (const [label, content] of lines) {
+      assert.ok(label.trim());
+      assert.ok(content.trim());
+      assert.doesNotMatch(content, /[\r\n]/);
+    }
+  }
 }
 
 test('the teacher can prepare all fifty lessons and present them after close; students see only grading', () => {
@@ -43,7 +59,7 @@ test('the teacher can prepare all fifty lessons and present them after close; st
   const preparation = room.guides();
   assert.equal(exam.length, 50);
   assert.deepEqual(room.guides(true), []);
-  assert.ok(preparation.some(({ type, guide }) => type === 'short' && guide.model));
+  assertGuideLayout(preparation.find(({ type }) => type === 'short').guide);
   assert.equal(Object.hasOwn(engine, 'readStudentAnswerGuides'), false);
   assertNoGuide(room.poll(student));
 
@@ -62,15 +78,13 @@ test('the teacher can prepare all fifty lessons and present them after close; st
 
   const entries = room.guides(true);
   assert.equal(entries.length, 50);
-  assert.equal(new Set(entries.map(({ guide }) => guide.model)).size, 50);
+  assert.equal(new Set(entries.map(({ guide }) => guide.concept)).size, 50);
   for (const question of exam) {
     const entry = entries.find(({ id }) => id === question.id);
     assert.equal(entry.title, question.title);
     assert.equal(entry.options[entry.correctIndex], question.options[question.correctIndex]);
     assert.equal(entry.examNumber, question.examNumber);
-    for (const field of ['reasoning', 'pitfall', 'model']) assert.ok(entry.guide[field]?.trim(), question.id + ' ' + field);
-    assert.equal(entry.guide.outline.length, 3);
-    for (const [heading, guidance] of entry.guide.outline) assert.ok(heading.trim() && guidance.trim());
+    assertGuideLayout(entry.guide);
     assert.deepEqual(entry.guide, preparation.find(({ id }) => id === question.id).guide);
   }
 });
@@ -139,12 +153,12 @@ test('grading an essay does not disclose the guide, private rubric, or other stu
   assertNoGuide(payload);
   assert.ok(!JSON.stringify(payload).includes(theirAnswer));
   const [presented] = room.guides(true);
-  assert.ok(presented.guide.model);
+  assertGuideLayout(presented.guide);
   assert.ok(!JSON.stringify(presented).includes(myAnswer));
   assert.ok(!JSON.stringify(presented).includes(gradingGuide));
 });
 
-test('editing a built-in question’s answer never displays its outdated model answer', () => {
+test('editing a built-in question’s answer uses the general guide instead of the outdated concept', () => {
   const room = classroom();
   const question = room.state.questions[0];
   const original = readTeacherAnswerGuides(room.state).entries.find(({ id }) => id === question.id);
@@ -155,9 +169,9 @@ test('editing a built-in question’s answer never displays its outdated model a
   room.act('answer', { value: changedIndex }, student);
   const [entry] = room.guides(true);
   assert.equal(entry.correctIndex, changedIndex);
-  assert.notEqual(entry.guide.model, original.guide.model);
-  assert.notEqual(entry.guide.reasoning, original.guide.reasoning);
-  assert.ok(entry.guide.reasoning.includes(question.options[changedIndex]));
+  assertGuideLayout(entry.guide);
+  assert.notEqual(entry.guide.concept, original.guide.concept);
+  assert.notDeepEqual(entry.guide.outline, original.guide.outline);
 });
 
 test('the twenty existing classroom questions get their own guides regardless of their stored IDs', () => {
@@ -174,7 +188,7 @@ test('the twenty existing classroom questions get their own guides regardless of
   for (const [index, id] of matchedIds.entries()) {
     const { guide } = entries.find((entry) => entry.id === id);
     assert.deepEqual(guide, lessons[index].guide);
-    assert.ok(guide.reasoning && guide.pitfall && guide.outline.length === 3 && guide.model);
+    assertGuideLayout(guide);
   }
 });
 
@@ -225,7 +239,7 @@ test('only the authenticated teacher can download guides over HTTP, including af
   assert.equal(presentation.status, 200);
   const { entries } = await presentation.json();
   assert.deepEqual(entries.map(({ id }) => id), [question.id]);
-  assert.ok(entries[0].guide.model);
+  assertGuideLayout(entries[0].guide);
   const payload = await fetch(base + '/api/state?code=' + room.state.roomCode, { headers: member });
   assert.equal(payload.status, 200);
   const studentState = await payload.json();

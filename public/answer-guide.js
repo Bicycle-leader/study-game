@@ -37,11 +37,25 @@
   }
 
   function choices(entry) {
-    const details = node('details', 'guide-disclosure');
     const list = node('ol');
     for (const choice of entry.options) list.append(node('li', '', choice));
-    details.append(node('summary', '', '문제 보기 다시 읽기'), list);
-    return details;
+    return list;
+  }
+
+  function outlineList(outline) {
+    const list = node('ol', 'guide-outline');
+    for (const [heading, lines] of outline) {
+      const item = node('li', 'guide-outline-block');
+      const subtopics = node('dl', 'guide-outline-lines');
+      for (const [label, content] of lines) {
+        const row = node('div', 'guide-outline-row');
+        row.append(node('dt', '', label), node('dd', '', content));
+        subtopics.append(row);
+      }
+      item.append(node('h5', '', heading), subtopics);
+      list.append(item);
+    }
+    return list;
   }
 
   function generalWritingAdvice() {
@@ -69,24 +83,21 @@
   function renderEntry(entry) {
     const article = node('article', 'guide-article');
     article.append(node('h3', 'guide-question', entry.title));
-    const answers = answerSummary(entry);
-    if (answers.childElementCount) article.append(answers);
-    if (entry.type === 'multiple' && entry.options?.length) article.append(choices(entry));
-
     const guide = entry.guide || {};
-    const reasoning = guide.reasoning || entry.explanation;
-    if (reasoning) article.append(section(entry.type === 'essay' ? '문제 이해하기' : '정답을 고르는 근거', node('p', '', reasoning)));
-    if (guide.pitfall) article.append(section('헷갈리기 쉬운 점', node('p', '', guide.pitfall)));
+    if (guide.concept) article.append(section('개념과 해설', node('p', 'guide-concept', guide.concept)));
     if (guide.outline?.length) {
-      const list = node('ol', 'guide-outline');
-      for (const [heading, body] of guide.outline) {
-        const item = node('li');
-        item.append(node('strong', '', heading), node('p', '', body));
-        list.append(item);
-      }
-      article.append(section('기술사 답안 구성', list));
+      article.append(section('기술사 답안 구성', outlineList(guide.outline)));
     }
-    if (guide.model) article.append(section('연습용 서술형 답안 예시', node('p', 'guide-model', guide.model)));
+
+    const answers = answerSummary(entry);
+    const hasChoices = entry.type === 'multiple' && entry.options?.length;
+    if (answers.childElementCount || hasChoices) {
+      const reference = node('details', 'guide-disclosure guide-reference');
+      reference.append(node('summary', '', hasChoices ? '정답과 보기' : '인정 답안'));
+      if (answers.childElementCount) reference.append(answers);
+      if (hasChoices) reference.append(choices(entry));
+      article.append(reference);
+    }
     if (guide.sources?.length) {
       const sources = node('details', 'guide-disclosure');
       const list = node('ul');
