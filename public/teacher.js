@@ -23,6 +23,7 @@ let renderedQrUrl;
 let presenting = false;
 let classMode = 'home';
 let joining = true;
+let lectureJoining = true;
 let managing = false;
 let activeTab = 'overview';
 let countdown = null;
@@ -34,7 +35,7 @@ let lectureRenderer;
 let lectureLoading = false;
 let lectureLoadFailed = false;
 let renderedLecturePage = null;
-let renderedLectureQrUrl;
+let lectureQr;
 
 class ApiError extends Error {
   constructor(message, status) {
@@ -162,6 +163,8 @@ function syncControls() {
     'select-lecture-mode': { disabled: busy || !state },
     'back-to-modes': { disabled: busy },
     'fullscreen': { hidden: classMode === 'home' },
+    'enter-lecture': { disabled: !state },
+    'copy-lecture-join-link': { disabled: !state?.lectureUrl },
     'lecture-jump': { disabled: busy || lectureIndex === null },
     'lecture-previous': { disabled: busy || lectureIndex === null || lectureIndex === 0 },
     'lecture-next': { disabled: busy || lectureIndex === null || lectureIndex === lecturePages.length - 1 },
@@ -470,7 +473,10 @@ function render() {
     selectedId = active?.id || nextQuestion()?.id || scoped[0]?.id || null;
   }
   if (classMode === 'quiz' && joining) renderJoinQr();
-  if (classMode === 'lecture') renderLecture();
+  if (classMode === 'lecture') {
+    if (lectureJoining) renderLectureJoin();
+    else renderLecture();
+  }
   renderScope();
   if (!state) {
     for (const id of ['question-list', 'history-list', 'participant-list']) renderList(id, null, () => []);
@@ -890,27 +896,38 @@ function qrImageUrl(url) {
   return qr.createDataURL(10, 40);
 }
 
-function renderLectureQr(viewerUrl) {
+function renderLectureQrImage(viewerUrl, image, error, link) {
+  link.hidden = !viewerUrl;
   if (!viewerUrl) {
-    $('lecture-qr-dialog').close();
+    link.removeAttribute('href');
+    image.removeAttribute('src');
+    image.hidden = true;
+    error.hidden = true;
     return;
   }
-  if (renderedLectureQrUrl === viewerUrl) return;
 
-  const image = $('lecture-qr-image');
-  const error = $('lecture-qr-error');
-  $('lecture-qr-view-link').href = viewerUrl;
+  link.href = viewerUrl;
   try {
-    image.src = qrImageUrl(viewerUrl);
+    if (lectureQr?.url !== viewerUrl) lectureQr = { url: viewerUrl, src: qrImageUrl(viewerUrl) };
+    if (image.src !== lectureQr.src) image.src = lectureQr.src;
     image.hidden = false;
     error.hidden = true;
-    renderedLectureQrUrl = viewerUrl;
   } catch {
     image.removeAttribute('src');
     image.hidden = true;
     error.hidden = false;
-    renderedLectureQrUrl = undefined;
   }
+}
+
+function renderLectureJoin() {
+  const viewerUrl = lectureViewerUrl();
+  $('lecture-join-loading').hidden = Boolean(viewerUrl);
+  renderLectureQrImage(viewerUrl, $('lecture-join-qr-image'), $('lecture-join-error'), $('lecture-join-view-link'));
+}
+
+function renderLectureQr(viewerUrl) {
+  if (!viewerUrl) $('lecture-qr-dialog').close();
+  else renderLectureQrImage(viewerUrl, $('lecture-qr-image'), $('lecture-qr-error'), $('lecture-qr-view-link'));
 }
 
 function renderLecture() {
@@ -971,7 +988,7 @@ async function loadLectureResources() {
 
 function changeLecturePage(pageIndex) {
   const expectedPageIndex = currentLecturePage();
-  if (classMode !== 'lecture' || busy || expectedPageIndex === null || pageIndex === expectedPageIndex || !lecturePages[pageIndex]) return;
+  if (classMode !== 'lecture' || lectureJoining || busy || expectedPageIndex === null || pageIndex === expectedPageIndex || !lecturePages[pageIndex]) return;
   mutate('lecture', { pageIndex, expectedPageIndex }, {
     onError: async (message, status) => {
       if (status === 409) await loadState();
@@ -1035,14 +1052,16 @@ function activateTab(name) {
 
 function updateModeVisibility() {
   const quiz = classMode === 'quiz';
+  const lecture = classMode === 'lecture';
   $('mode-screen').hidden = classMode !== 'home';
   $('mode-toolbar').hidden = classMode === 'home' || presenting;
-  $('lecture-screen').hidden = classMode !== 'lecture';
+  $('lecture-join-screen').hidden = !lecture || !lectureJoining;
+  $('lecture-screen').hidden = !lecture || lectureJoining;
   $('join-screen').hidden = !quiz || !joining;
   $('class-hero').hidden = !quiz || joining;
   $('class-metrics').hidden = !quiz || joining;
   document.body.classList.toggle('is-joining', joining);
-  document.body.classList.toggle('is-lecture', classMode === 'lecture');
+  document.body.classList.toggle('is-lecture', lecture);
 }
 
 function setJoinScreen(active, focus = true) {
@@ -1062,9 +1081,10 @@ function setJoinScreen(active, focus = true) {
 function setClassMode(mode, focus = true) {
   if (mode !== 'lecture') $('lecture-qr-dialog').close();
   classMode = mode;
+  lectureJoining = true;
   setJoinScreen(true, false);
   if (classMode === 'lecture') void loadLectureResources();
-  const focusTarget = { home: 'mode-heading', quiz: 'join-heading', lecture: 'lecture-screen' };
+  const focusTarget = { home: 'mode-heading', quiz: 'join-heading', lecture: 'lecture-join-heading' };
   if (focus) $(focusTarget[mode]).focus();
 }
 
@@ -1075,6 +1095,15 @@ function listen(id, event, handler) {
 listen('select-quiz-mode', 'click', () => { if (state && !busy) setClassMode('quiz'); });
 listen('select-lecture-mode', 'click', () => { if (state && !busy) setClassMode('lecture'); });
 listen('back-to-modes', 'click', () => { if (!busy && !presenting) setClassMode('home'); });
+listen('enter-lecture', 'click', () => {
+  if (!state || classMode !== 'lecture' || !lectureJoining) return;
+  lectureJoining = false;
+  updateModeVisibility();
+  render();
+  void loadLectureResources();
+  $('lecture-screen').focus();
+});
+listen('copy-lecture-join-link', 'click', () => copy(lectureViewerUrl(), '강의 보기 링크'));
 listen('lecture-previous', 'click', () => changeLecturePage(currentLecturePage() - 1));
 listen('lecture-next', 'click', () => changeLecturePage(currentLecturePage() + 1));
 listen('lecture-jump', 'change', (event) => changeLecturePage(Number(event.currentTarget.value)));
@@ -1082,7 +1111,7 @@ listen('copy-lecture-link', 'click', () => copy(lectureViewerUrl(), '강의 보�
 listen('show-lecture-qr', 'click', () => {
   const dialog = $('lecture-qr-dialog');
   const viewerUrl = lectureViewerUrl();
-  if (classMode !== 'lecture' || !viewerUrl || dialog.open) return;
+  if (classMode !== 'lecture' || lectureJoining || !viewerUrl || dialog.open) return;
   setText('lecture-qr-copy-status', '');
   renderLectureQr(viewerUrl);
   dialog.showModal();

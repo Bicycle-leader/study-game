@@ -103,9 +103,9 @@ a { color: inherit; }
 #qr-room-code { font-family: 'IBM Plex Mono', Consolas, monospace; letter-spacing: .13em; }
 .join-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: clamp(14px, 3vw, 32px); }
 .join-qr-card { display: grid; justify-items: center; gap: 10px; width: min(100%, 440px); padding: 14px; color: var(--ink); background: #fff; border-radius: 13px; box-shadow: 0 12px 32px #0e302d30; text-align: center; justify-self: end; }
-#qr-image { display: block; width: min(100%, 410px, 66dvh); height: auto; image-rendering: pixelated; }
+.join-qr-card img { display: block; width: min(100%, 410px, 66dvh); height: auto; image-rendering: pixelated; }
 .qr-loading { display: grid; min-height: min(240px, 45dvh); place-content: center; color: var(--muted); font-size: 14px; }
-#qr-student-link { color: var(--pine); font-size: 13px; font-weight: 700; text-underline-offset: 3px; }
+.join-qr-card a { color: var(--pine); font-size: 13px; font-weight: 700; text-underline-offset: 3px; }
 .room-card { flex: 0 0 252px; padding: 16px; border: 1px solid #8ca98a8a; border-radius: 13px; background: #173d34ed; box-shadow: 0 12px 32px #0e302d30; }
 .room-heading, .room-code-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .room-heading { color: #dbe8d3; font-size: 11px; font-weight: 800; }

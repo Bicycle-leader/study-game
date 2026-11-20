@@ -81,6 +81,23 @@
       <button class="button button-secondary" id="back-to-modes" type="button"><span aria-hidden="true">‹</span> 수업 선택</button>
     </div>
 
+    <section class="hero join-screen" id="lecture-join-screen" aria-labelledby="lecture-join-heading" hidden>
+      <div class="join-copy">
+        <h1 id="lecture-join-heading" tabindex="-1">지적학 강의 보기</h1>
+        <p class="hero-description">휴대폰 카메라로 QR 코드를 찍으면 강사가 보고 있는 페이지를 볼 수 있습니다.</p>
+        <div class="join-actions">
+          <button class="button qr-button" id="enter-lecture" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg>강의 화면 열기</button>
+          <button class="button share-button" id="copy-lecture-join-link" type="button" disabled><svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>강의 보기 링크 복사</button>
+        </div>
+      </div>
+      <div class="join-qr-card">
+        <img id="lecture-join-qr-image" alt="학생용 강의 보기 링크의 QR 코드" hidden>
+        <p class="qr-loading" id="lecture-join-loading" role="status">강의 보기 링크를 불러오는 중입니다.</p>
+        <p class="form-error" id="lecture-join-error" role="alert" hidden>QR 코드를 표시할 수 없습니다. 아래 링크를 열어 주세요.</p>
+        <a id="lecture-join-view-link" target="_blank" rel="noopener noreferrer" hidden>학생용 강의 보기 <span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+
     <section class="teacher-lecture" id="lecture-screen" aria-label="지적학 강의" tabindex="-1" hidden>
       <div class="lecture-toolbar" id="teacher-lecture-tools">
         <div class="lecture-jump-field">
